@@ -18,6 +18,7 @@ pub struct Cli {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct NormalizeConfig {
+    #[serde(alias = "priority")]
     pub order: Vec<ItemOrder>,
     pub compact_use_block: bool,
     pub compact_const_block: bool,
@@ -25,38 +26,29 @@ pub struct NormalizeConfig {
 }
 
 impl NormalizeConfig {
-    pub fn mods_before_constants(&self) -> bool {
-        let mods_index = self
-            .order
-            .iter()
-            .position(|group| *group == ItemOrder::Mods);
-        let constants_index = self
-            .order
-            .iter()
-            .position(|group| *group == ItemOrder::Constants);
-        match (mods_index, constants_index) {
-            (Some(mods_idx), Some(constants_idx)) => mods_idx <= constants_idx,
+    fn position(&self, target: ItemOrder) -> Option<usize> {
+        self.order.iter().position(|group| *group == target)
+    }
+
+    fn comes_before(&self, left: ItemOrder, right: ItemOrder) -> bool {
+        match (self.position(left), self.position(right)) {
+            (Some(left_idx), Some(right_idx)) => left_idx <= right_idx,
             (Some(_), None) => true,
             (None, Some(_)) => false,
             (None, None) => true,
         }
     }
 
-    pub fn types_before_functions(&self) -> bool {
-        let types_index = self
-            .order
-            .iter()
-            .position(|group| *group == ItemOrder::Types);
-        let functions_index = self
-            .order
-            .iter()
-            .position(|group| *group == ItemOrder::Functions);
-        match (types_index, functions_index) {
-            (Some(types_idx), Some(functions_idx)) => types_idx <= functions_idx,
-            (Some(_), None) => true,
-            (None, Some(_)) => false,
-            (None, None) => true,
-        }
+    pub fn rank(&self, group: ItemOrder, default_rank: usize) -> usize {
+        self.position(group).unwrap_or(default_rank)
+    }
+
+    pub fn mods_before_macros(&self) -> bool {
+        self.comes_before(ItemOrder::Mods, ItemOrder::Macros)
+    }
+
+    pub fn constants_before_types(&self) -> bool {
+        self.comes_before(ItemOrder::Constants, ItemOrder::Types)
     }
 }
 
@@ -80,17 +72,22 @@ impl NormalizeConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemOrder {
+    Attributes,
     Imports,
+    #[serde(alias = "modules")]
     Mods,
+    Macros,
     Constants,
+    Types,
     Enums,
     Structs,
     Impls,
     Traits,
-    Types,
+    #[serde(rename = "ffi", alias = "foreign", alias = "extern_blocks")]
+    Foreign,
     Functions,
     Tests,
 }
@@ -99,14 +96,17 @@ impl Default for NormalizeConfig {
     fn default() -> Self {
         Self {
             order: vec![
+                ItemOrder::Attributes,
                 ItemOrder::Imports,
                 ItemOrder::Mods,
+                ItemOrder::Macros,
                 ItemOrder::Constants,
+                ItemOrder::Types,
                 ItemOrder::Enums,
                 ItemOrder::Structs,
                 ItemOrder::Impls,
                 ItemOrder::Traits,
-                ItemOrder::Types,
+                ItemOrder::Foreign,
                 ItemOrder::Functions,
                 ItemOrder::Tests,
             ],

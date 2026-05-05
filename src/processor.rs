@@ -1,4 +1,4 @@
-use crate::config::NormalizeConfig;
+use crate::config::{ItemOrder, NormalizeConfig};
 use similar::TextDiff;
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -166,12 +166,13 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemSegment> {
     let mut imports = Vec::new();
-    let mut includes = Vec::new();
     let mut modules = Vec::new();
+    let mut macros = Vec::new();
     let mut constants = Vec::new();
+    let mut type_aliases = Vec::new();
     let mut data = Vec::new();
     let mut traits = Vec::new();
-    let mut type_aliases = Vec::new();
+    let mut foreign = Vec::new();
     let mut functions = Vec::new();
     let mut tests = Vec::new();
     let mut others = Vec::new();
@@ -180,13 +181,14 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     for item in items {
         match &item.item {
             Item::Use(_) => imports.push(item),
-            Item::Macro(item_macro) if is_include_macro(item_macro) => includes.push(item),
             Item::Mod(item_mod)
                 if !is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) =>
             {
                 modules.push(item);
             }
+            Item::Macro(_) => macros.push(item),
             Item::Const(_) | Item::Static(_) => constants.push(item),
+            Item::Type(_) => type_aliases.push(item),
             Item::Struct(_) | Item::Enum(_) | Item::Union(_) => data.push(item),
             Item::Impl(item_impl) => {
                 if let Some(type_name) = inherent_impl_target(&item_impl) {
@@ -196,7 +198,7 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
                 }
             }
             Item::Trait(_) => traits.push(item),
-            Item::Type(_) => type_aliases.push(item),
+            Item::ForeignMod(_) => foreign.push(item),
             Item::Fn(_) => functions.push(item),
             Item::Mod(item_mod) if is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) => {
                 tests.push(item);
@@ -206,13 +208,19 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     }
     let mut out = Vec::new();
     out.extend(imports);
-    out.extend(includes);
-    if config.mods_before_constants() {
+    if config.mods_before_macros() {
         out.extend(modules);
-        out.extend(constants);
+        out.extend(macros);
     } else {
-        out.extend(constants);
+        out.extend(macros);
         out.extend(modules);
+    }
+    if config.constants_before_types() {
+        out.extend(constants);
+        out.extend(type_aliases);
+    } else {
+        out.extend(type_aliases);
+        out.extend(constants);
     }
     for item in data {
         if let Some(data_name) = data_item_name(&item.item) {
@@ -228,21 +236,23 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
         out.append(&mut impls);
     }
     out.extend(fallback_impls);
-    out.extend(traits);
-    if config.types_before_functions() {
-        out.extend(type_aliases);
-        out.extend(functions);
-    } else {
-        out.extend(functions);
-        out.extend(type_aliases);
+    let mut tail_order = vec![
+        (config.rank(ItemOrder::Traits, 0), 0usize),
+        (config.rank(ItemOrder::Foreign, 1), 1usize),
+        (config.rank(ItemOrder::Functions, 2), 2usize),
+    ];
+    tail_order.sort_by_key(|(rank, tie_break)| (*rank, *tie_break));
+    for (_, group) in tail_order {
+        match group {
+            0 => out.extend(traits.iter().cloned()),
+            1 => out.extend(foreign.iter().cloned()),
+            2 => out.extend(functions.iter().cloned()),
+            _ => {}
+        }
     }
     out.extend(others);
     out.extend(tests);
     out
-}
-
-fn is_include_macro(item_macro: &syn::ItemMacro) -> bool {
-    item_macro.mac.path.is_ident("include")
 }
 
 fn data_item_name(item: &Item) -> Option<String> {
@@ -605,8 +615,11 @@ mod tests {
         }
     }
     #[test]
-    fn puts_mod_before_const_by_default() {
-        let items = vec![segment("const A: usize = 1;"), segment("mod attacks;")];
+    fn puts_mod_before_macros_by_default() {
+        let items = vec![
+            segment("macro_rules! m { () => {}; }"),
+            segment("mod attacks;"),
+        ];
         let reordered = reorder_items(items, &NormalizeConfig::default());
         let rendered = render_segments(
             NormalizedFile {
@@ -616,11 +629,13 @@ mod tests {
             },
             &NormalizeConfig::default(),
         );
-        assert!(rendered.starts_with("mod attacks;\n\nconst A: usize = 1;"));
+        let mod_pos = rendered.find("mod attacks;").expect("mod item present");
+        let macro_pos = rendered.find("macro_rules! m").expect("macro item present");
+        assert!(mod_pos < macro_pos);
     }
 
     #[test]
-    fn puts_include_after_use_items() {
+    fn puts_macros_after_mods_and_use_items_by_default() {
         let items = vec![
             segment("mod attacks;"),
             segment("include!(\"generated.rs\");"),
@@ -637,23 +652,30 @@ mod tests {
         );
         assert!(
             rendered.starts_with(
-                "use crate::types::Move;\n\ninclude!(\"generated.rs\");\n\nmod attacks;"
+                "use crate::types::Move;\n\nmod attacks;\n\ninclude!(\"generated.rs\");"
             ),
         );
     }
 
     #[test]
-    fn can_put_const_before_mod_via_config() {
-        let items = vec![segment("const A: usize = 1;"), segment("mod attacks;")];
+    fn can_put_macros_before_mods_via_config() {
+        let items = vec![
+            segment("macro_rules! m { () => {}; }"),
+            segment("mod attacks;"),
+        ];
         let config = NormalizeConfig {
             order: vec![
                 ItemOrder::Imports,
-                ItemOrder::Constants,
+                ItemOrder::Macros,
                 ItemOrder::Mods,
+                ItemOrder::Constants,
+                ItemOrder::Types,
                 ItemOrder::Enums,
                 ItemOrder::Structs,
                 ItemOrder::Impls,
                 ItemOrder::Traits,
+                ItemOrder::Foreign,
+                ItemOrder::Functions,
                 ItemOrder::Tests,
             ],
             ..NormalizeConfig::default()
@@ -667,14 +689,16 @@ mod tests {
             },
             &config,
         );
-        assert!(rendered.starts_with("const A: usize = 1;\n\nmod attacks;"));
+        let mod_pos = rendered.find("mod attacks;").expect("mod item present");
+        let macro_pos = rendered.find("macro_rules! m").expect("macro item present");
+        assert!(macro_pos < mod_pos);
     }
 
     #[test]
-    fn puts_type_aliases_before_free_functions() {
+    fn puts_constants_before_type_aliases_by_default() {
         let items = vec![
-            segment("fn eval() -> Score { Score(0) }"),
             segment("type Score = i32;"),
+            segment("const DEFAULT: Score = 0;"),
         ];
         let reordered = reorder_items(items, &NormalizeConfig::default());
         let rendered = render_segments(
@@ -685,40 +709,27 @@ mod tests {
             },
             &NormalizeConfig::default(),
         );
-        assert!(rendered.starts_with("type Score = i32;\n\nfn eval() -> Score { Score(0) }"));
+        assert!(rendered.starts_with("const DEFAULT: Score = 0;\n\ntype Score = i32;"));
     }
 
     #[test]
-    fn can_put_free_functions_before_type_aliases_via_config() {
+    fn puts_ffi_before_free_functions_by_default() {
         let items = vec![
             segment("fn eval() -> Score { Score(0) }"),
-            segment("type Score = i32;"),
+            segment("extern \"C\" {\n    fn eval_native() -> i32;\n}"),
         ];
-        let config = NormalizeConfig {
-            order: vec![
-                ItemOrder::Imports,
-                ItemOrder::Mods,
-                ItemOrder::Constants,
-                ItemOrder::Enums,
-                ItemOrder::Structs,
-                ItemOrder::Impls,
-                ItemOrder::Traits,
-                ItemOrder::Functions,
-                ItemOrder::Types,
-                ItemOrder::Tests,
-            ],
-            ..NormalizeConfig::default()
-        };
-        let reordered = reorder_items(items, &config);
+        let reordered = reorder_items(items, &NormalizeConfig::default());
         let rendered = render_segments(
             NormalizedFile {
                 shebang: None,
                 attrs: Vec::new(),
                 items: reordered,
             },
-            &config,
+            &NormalizeConfig::default(),
         );
-        assert!(rendered.starts_with("fn eval() -> Score { Score(0) }\n\ntype Score = i32;"));
+        assert!(rendered.starts_with(
+            "extern \"C\" {\n    fn eval_native() -> i32;\n}\n\nfn eval() -> Score { Score(0) }"
+        ),);
     }
 
     #[test]
