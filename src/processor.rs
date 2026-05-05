@@ -46,7 +46,8 @@ impl Processor {
         let promoted_comments = promote_leading_item_comments(&original);
         let parsed = syn::parse_file(&promoted_comments)
             .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?;
-        let normalized = Normalizer::new(parsed, &promoted_comments).normalize();
+        let normalized = Normalizer::new(parsed, &promoted_comments)
+            .normalize(&self.config);
         let rendered = normalize_function_spacing(
             &restore_promoted_comment_style(&render_segments(normalized, &self.config)),
         );
@@ -78,9 +79,9 @@ impl Normalizer {
             original: original.to_owned(),
         }
     }
-    fn normalize(self) -> NormalizedFile {
+    fn normalize(self, config: &NormalizeConfig) -> NormalizedFile {
         let segments = segment_items(self.file.items, &self.original);
-        let items = reorder_items(segments);
+        let items = reorder_items(segments, config);
         NormalizedFile {
             shebang: self.file.shebang,
             attrs: self.file.attrs,
@@ -106,6 +107,7 @@ struct ItemSegment {
 enum CompactGroup {
     Use,
     Const,
+    Mod,
 }
 
 fn collect_rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
@@ -174,8 +176,9 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn reorder_items(items: Vec<ItemSegment>) -> Vec<ItemSegment> {
+fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemSegment> {
     let mut imports = Vec::new();
+    let mut modules = Vec::new();
     let mut constants = Vec::new();
     let mut data = Vec::new();
     let mut traits = Vec::new();
@@ -186,6 +189,11 @@ fn reorder_items(items: Vec<ItemSegment>) -> Vec<ItemSegment> {
     for item in items {
         match &item.item {
             Item::Use(_) => imports.push(item),
+            Item::Mod(
+                item_mod,
+            ) if !is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) => {
+                modules.push(item);
+            }
             Item::Const(_) | Item::Static(_) => constants.push(item),
             Item::Struct(_) | Item::Enum(_) | Item::Union(_) => data.push(item),
             Item::Impl(item_impl) => {
@@ -206,7 +214,13 @@ fn reorder_items(items: Vec<ItemSegment>) -> Vec<ItemSegment> {
     }
     let mut out = Vec::new();
     out.extend(imports);
-    out.extend(constants);
+    if config.mods_before_constants() {
+        out.extend(modules);
+        out.extend(constants);
+    } else {
+        out.extend(constants);
+        out.extend(modules);
+    }
     for item in data {
         if let Some(data_name) = data_item_name(&item.item) {
             out.push(item);
@@ -404,6 +418,7 @@ fn compact_group_for_item(
         Item::Const(_) | Item::Static(_) if config.compact_const_block => {
             Some(CompactGroup::Const)
         }
+        Item::Mod(_) if config.compact_mod_block => Some(CompactGroup::Mod),
         _ => None,
     }
 }
@@ -570,7 +585,89 @@ fn strip_whitespace_and_trailing_commas(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::differs_only_by_whitespace;
+    use super::{
+        ItemSegment, NormalizedFile, differs_only_by_whitespace, render_segments,
+        reorder_items,
+    };
+    use crate::config::{ItemOrder, NormalizeConfig};
+    fn parse_item(src: &str) -> syn::Item {
+        syn::parse_str(src).expect("valid Rust item")
+    }
+    fn segment(src: &str) -> ItemSegment {
+        ItemSegment {
+            item: parse_item(src),
+            leading_comments: Vec::new(),
+        }
+    }
+    #[test]
+    fn puts_mod_before_const_by_default() {
+        let items = vec![segment("const A: usize = 1;"), segment("mod attacks;")];
+        let reordered = reorder_items(items, &NormalizeConfig::default());
+        let rendered = render_segments(
+            NormalizedFile {
+                shebang: None,
+                attrs: Vec::new(),
+                items: reordered,
+            },
+            &NormalizeConfig::default(),
+        );
+        assert!(rendered.starts_with("mod attacks;\n\nconst A: usize = 1;"));
+    }
+    #[test]
+    fn can_put_const_before_mod_via_config() {
+        let items = vec![segment("const A: usize = 1;"), segment("mod attacks;")];
+        let config = NormalizeConfig {
+            order: vec![
+                ItemOrder::Imports, ItemOrder::Constants, ItemOrder::Mods,
+                ItemOrder::Enums, ItemOrder::Structs, ItemOrder::Impls,
+                ItemOrder::Traits, ItemOrder::Tests,
+            ],
+            ..NormalizeConfig::default()
+        };
+        let reordered = reorder_items(items, &config);
+        let rendered = render_segments(
+            NormalizedFile {
+                shebang: None,
+                attrs: Vec::new(),
+                items: reordered,
+            },
+            &config,
+        );
+        assert!(rendered.starts_with("const A: usize = 1;\n\nmod attacks;"));
+    }
+    #[test]
+    fn compacts_consecutive_mod_items_by_default() {
+        let normalized = NormalizedFile {
+            shebang: None,
+            attrs: Vec::new(),
+            items: vec![
+                ItemSegment { item : parse_item("mod attacks;"), leading_comments :
+                Vec::new(), }, ItemSegment { item : parse_item("mod magics;"),
+                leading_comments : Vec::new(), }, ItemSegment { item :
+                parse_item("mod maps;"), leading_comments : Vec::new(), },
+            ],
+        };
+        let rendered = render_segments(normalized, &NormalizeConfig::default());
+        assert_eq!(rendered, "mod attacks;\nmod magics;\nmod maps;\n");
+    }
+    #[test]
+    fn can_disable_compact_mod_block_via_config() {
+        let normalized = NormalizedFile {
+            shebang: None,
+            attrs: Vec::new(),
+            items: vec![
+                ItemSegment { item : parse_item("mod attacks;"), leading_comments :
+                Vec::new(), }, ItemSegment { item : parse_item("mod magics;"),
+                leading_comments : Vec::new(), },
+            ],
+        };
+        let config = NormalizeConfig {
+            compact_mod_block: false,
+            ..NormalizeConfig::default()
+        };
+        let rendered = render_segments(normalized, &config);
+        assert_eq!(rendered, "mod attacks;\n\nmod magics;\n");
+    }
     #[test]
     fn treats_multiline_fold_and_trailing_comma_as_whitespace_only() {
         let before = r#"

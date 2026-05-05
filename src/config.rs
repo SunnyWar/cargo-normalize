@@ -18,8 +18,26 @@ pub struct Cli {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct NormalizeConfig {
+    pub order: Vec<ItemOrder>,
     pub compact_use_block: bool,
     pub compact_const_block: bool,
+    pub compact_mod_block: bool,
+}
+
+impl NormalizeConfig {
+    pub fn mods_before_constants(&self) -> bool {
+        let mods_index = self.order.iter().position(|group| *group == ItemOrder::Mods);
+        let constants_index = self
+            .order
+            .iter()
+            .position(|group| *group == ItemOrder::Constants);
+        match (mods_index, constants_index) {
+            (Some(mods_idx), Some(constants_idx)) => mods_idx <= constants_idx,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => true,
+        }
+    }
 }
 
 impl NormalizeConfig {
@@ -44,11 +62,30 @@ impl NormalizeConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemOrder {
+    Imports,
+    Mods,
+    Constants,
+    Enums,
+    Structs,
+    Impls,
+    Traits,
+    Tests,
+}
+
 impl Default for NormalizeConfig {
     fn default() -> Self {
         Self {
+            order: vec![
+                ItemOrder::Imports, ItemOrder::Mods, ItemOrder::Constants,
+                ItemOrder::Enums, ItemOrder::Structs, ItemOrder::Impls,
+                ItemOrder::Traits, ItemOrder::Tests,
+            ],
             compact_use_block: true,
             compact_const_block: true,
+            compact_mod_block: true,
         }
     }
 }

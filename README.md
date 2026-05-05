@@ -13,12 +13,13 @@ Rust modules often drift into mixed ordering over time: imports scattered betwee
 Default ordering:
 
 1. Imports (`use`)
-2. Constants (`const`, `static`)
-3. Enums
-4. Structs
-5. Impls (grouped with their corresponding structs)
-6. Traits
-7. Tests (`#[cfg(test)]`, moved to the bottom)
+2. Modules (`mod`, excluding test modules)
+3. Constants (`const`, `static`)
+4. Enums
+5. Structs
+6. Impls (grouped with their corresponding structs)
+7. Traits
+8. Tests (`#[cfg(test)]`, moved to the bottom)
 
 ## Features
 
@@ -56,7 +57,7 @@ cargo normalize --check
 
 ## Configuration
 
-Create a `normalize.toml` in your crate root to define your preferred item order.
+Create a `normalize.toml` in your crate root to customize item ordering and block compaction.
 
 Example:
 
@@ -64,6 +65,7 @@ Example:
 # normalize.toml
 order = [
   "imports",
+  "mods",
   "constants",
   "enums",
   "structs",
@@ -71,7 +73,13 @@ order = [
   "traits",
   "tests"
 ]
+compact_use_block = true
+compact_const_block = true
+compact_mod_block = true
 ```
+
+Move `"mods"` above or below `"constants"` in `order` to control their relative placement.
+Set `compact_mod_block = false` if you prefer a blank line between consecutive `mod` declarations.
 
 ## Technical Notes
 
