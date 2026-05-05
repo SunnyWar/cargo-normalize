@@ -46,11 +46,10 @@ impl Processor {
         let promoted_comments = promote_leading_item_comments(&original);
         let parsed = syn::parse_file(&promoted_comments)
             .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?;
-        let normalized = Normalizer::new(parsed, &promoted_comments)
-            .normalize(&self.config);
-        let rendered = normalize_function_spacing(
-            &restore_promoted_comment_style(&render_segments(normalized, &self.config)),
-        );
+        let normalized = Normalizer::new(parsed, &promoted_comments).normalize(&self.config);
+        let rendered = normalize_function_spacing(&restore_promoted_comment_style(
+            &render_segments(normalized, &self.config),
+        ));
         if original == rendered {
             return Ok(false);
         }
@@ -101,6 +100,7 @@ struct NormalizedFile {
 struct ItemSegment {
     item: Item,
     leading_comments: Vec<String>,
+    source: String,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -115,25 +115,20 @@ fn collect_rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
         if root.extension() == Some(OsStr::new("rs")) {
             return Ok(vec![root.to_path_buf()]);
         }
-        return Err(
-            format!("Path {} is a file but not a Rust source (.rs)", root.display()),
-        );
+        return Err(format!(
+            "Path {} is a file but not a Rust source (.rs)",
+            root.display()
+        ));
     }
     if !root.is_dir() {
         return Err(format!("Path does not exist: {}", root.display()));
     }
     let mut files = Vec::new();
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|entry| {
-            entry.file_name() != OsStr::new("target")
-                && entry.file_name() != OsStr::new(".git")
-        })
-    {
+    for entry in WalkDir::new(root).into_iter().filter_entry(|entry| {
+        entry.file_name() != OsStr::new("target") && entry.file_name() != OsStr::new(".git")
+    }) {
         let entry = entry.map_err(|err| format!("Directory walk failed: {err}"))?;
-        if entry.file_type().is_file()
-            && entry.path().extension() == Some(OsStr::new("rs"))
-        {
+        if entry.file_type().is_file() && entry.path().extension() == Some(OsStr::new("rs")) {
             files.push(entry.path().to_path_buf());
         }
     }
@@ -146,7 +141,10 @@ fn print_diff(path: &Path, before: &str, after: &str) {
     let unified = diff
         .unified_diff()
         .context_radius(3)
-        .header(&format!("a/{}", path.display()), &format!("b/{}", path.display()))
+        .header(
+            &format!("a/{}", path.display()),
+            &format!("b/{}", path.display()),
+        )
         .to_string();
     println!("{unified}");
 }
@@ -154,25 +152,15 @@ fn print_diff(path: &Path, before: &str, after: &str) {
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
-        .ok_or_else(|| {
-            format!("Cannot determine parent directory for {}", path.display())
-        })?;
+        .ok_or_else(|| format!("Cannot determine parent directory for {}", path.display()))?;
     let mut temp = NamedTempFile::new_in(parent)
-        .map_err(|err| {
-            format!("Failed to create temp file in {}: {err}", parent.display())
-        })?;
+        .map_err(|err| format!("Failed to create temp file in {}: {err}", parent.display()))?;
     temp.write_all(bytes)
-        .map_err(|err| {
-            format!("Failed to write temp file for {}: {err}", path.display())
-        })?;
+        .map_err(|err| format!("Failed to write temp file for {}: {err}", path.display()))?;
     temp.flush()
-        .map_err(|err| {
-            format!("Failed to flush temp file for {}: {err}", path.display())
-        })?;
+        .map_err(|err| format!("Failed to flush temp file for {}: {err}", path.display()))?;
     temp.persist(path)
-        .map_err(|err| {
-            format!("Failed to persist temp file to {}: {err}", path.display())
-        })?;
+        .map_err(|err| format!("Failed to persist temp file to {}: {err}", path.display()))?;
     Ok(())
 }
 
@@ -189,9 +177,9 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     for item in items {
         match &item.item {
             Item::Use(_) => imports.push(item),
-            Item::Mod(
-                item_mod,
-            ) if !is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) => {
+            Item::Mod(item_mod)
+                if !is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) =>
+            {
                 modules.push(item);
             }
             Item::Const(_) | Item::Static(_) => constants.push(item),
@@ -204,9 +192,7 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
                 }
             }
             Item::Trait(_) => traits.push(item),
-            Item::Mod(
-                item_mod,
-            ) if is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) => {
+            Item::Mod(item_mod) if is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) => {
                 tests.push(item);
             }
             _ => others.push(item),
@@ -272,13 +258,12 @@ fn attr_is_cfg_test(attr: &Attribute) -> bool {
         return false;
     }
     let mut found = false;
-    let _ = attr
-        .parse_nested_meta(|meta| {
-            if meta.path.is_ident("test") {
-                found = true;
-            }
-            Ok(())
-        });
+    let _ = attr.parse_nested_meta(|meta| {
+        if meta.path.is_ident("test") {
+            found = true;
+        }
+        Ok(())
+    });
     found
 }
 
@@ -290,16 +275,20 @@ fn segment_items(items: Vec<Item>, source: &str) -> Vec<ItemSegment> {
         let span = item.span();
         let start_line = span.start().line.max(1);
         let end_line = span.end().line.max(start_line);
-        let leading_comments = extract_leading_comments(
-            &lines,
-            prev_end_line,
-            start_line,
-        );
-        segments
-            .push(ItemSegment {
-                item,
-                leading_comments,
-            });
+        let leading_comments = extract_leading_comments(&lines, prev_end_line, start_line);
+        let source = (start_line..=end_line)
+            .filter_map(|line_no| {
+                lines
+                    .get(line_no.saturating_sub(1))
+                    .map(|line| (*line).to_owned())
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+        segments.push(ItemSegment {
+            item,
+            leading_comments,
+            source,
+        });
         prev_end_line = end_line.saturating_add(1);
     }
     segments
@@ -329,13 +318,19 @@ fn extract_leading_comments(
         }
         break;
     }
-    let first = if begin < min_line { min_line } else { begin.saturating_add(1) };
+    let first = if begin < min_line {
+        min_line
+    } else {
+        begin.saturating_add(1)
+    };
     if first >= item_start_line {
         return Vec::new();
     }
     let mut block: Vec<String> = (first..item_start_line)
         .filter_map(|line_no| {
-            lines.get(line_no.saturating_sub(1)).map(|line| (*line).to_owned())
+            lines
+                .get(line_no.saturating_sub(1))
+                .map(|line| (*line).to_owned())
         })
         .collect();
     if !block.iter().any(|line| is_plain_line_comment(line.trim())) {
@@ -351,20 +346,17 @@ fn extract_leading_comments(
 }
 
 fn is_plain_line_comment(trimmed: &str) -> bool {
-    trimmed.starts_with("//") && !trimmed.starts_with("///")
-        && !trimmed.starts_with("//!")
+    trimmed.starts_with("//") && !trimmed.starts_with("///") && !trimmed.starts_with("//!")
 }
 
 fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig) -> String {
     let mut out = String::new();
     if normalized.shebang.is_some() || !normalized.attrs.is_empty() {
-        let preamble = prettyplease::unparse(
-            &syn::File {
-                shebang: normalized.shebang,
-                attrs: normalized.attrs,
-                items: Vec::new(),
-            },
-        );
+        let preamble = prettyplease::unparse(&syn::File {
+            shebang: normalized.shebang,
+            attrs: normalized.attrs,
+            items: Vec::new(),
+        });
         if !preamble.trim().is_empty() {
             out.push_str(preamble.trim_end());
             out.push_str("\n\n");
@@ -383,19 +375,10 @@ fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig) -> Stri
                 out.push('\n');
             }
         }
-        let item_source = prettyplease::unparse(
-            &syn::File {
-                shebang: None,
-                attrs: Vec::new(),
-                items: vec![segment.item],
-            },
-        );
-        out.push_str(item_source.trim_end());
+        out.push_str(segment.source.trim_end());
         let is_last = idx + 1 == total;
         if !is_last {
-            if compact_groups[idx].is_some()
-                && compact_groups[idx] == compact_groups[idx + 1]
-            {
+            if compact_groups[idx].is_some() && compact_groups[idx] == compact_groups[idx + 1] {
                 out.push('\n');
             } else {
                 out.push_str("\n\n");
@@ -409,15 +392,10 @@ fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig) -> Stri
     out
 }
 
-fn compact_group_for_item(
-    item: &Item,
-    config: &NormalizeConfig,
-) -> Option<CompactGroup> {
+fn compact_group_for_item(item: &Item, config: &NormalizeConfig) -> Option<CompactGroup> {
     match item {
         Item::Use(_) if config.compact_use_block => Some(CompactGroup::Use),
-        Item::Const(_) | Item::Static(_) if config.compact_const_block => {
-            Some(CompactGroup::Const)
-        }
+        Item::Const(_) | Item::Static(_) if config.compact_const_block => Some(CompactGroup::Const),
         Item::Mod(_) if config.compact_mod_block => Some(CompactGroup::Mod),
         _ => None,
     }
@@ -448,20 +426,20 @@ fn promote_leading_item_comments(source: &str) -> String {
         while lookahead < lines.len() && lines[lookahead].trim_start().is_empty() {
             lookahead += 1;
         }
-        let attach_to_item = lookahead < lines.len()
-            && is_item_declaration_line(lines[lookahead].trim_start());
+        let attach_to_item =
+            lookahead < lines.len() && is_item_declaration_line(lines[lookahead].trim_start());
         if attach_to_item {
             for line in &lines[block_start..=block_end] {
                 let trimmed_line = line.trim_start();
                 if is_plain_line_comment(trimmed_line) {
                     let indent_len = line.len().saturating_sub(trimmed_line.len());
                     let indent = &line[..indent_len];
-                    out.push(
-                        format!(
-                            "{}///{}{}", indent, PROMOTED_COMMENT_MARKER, &
-                            trimmed_line[2..]
-                        ),
-                    );
+                    out.push(format!(
+                        "{}///{}{}",
+                        indent,
+                        PROMOTED_COMMENT_MARKER,
+                        &trimmed_line[2..]
+                    ));
                 } else {
                     out.push((*line).to_owned());
                 }
@@ -528,7 +506,11 @@ fn normalize_function_spacing(rendered: &str) -> String {
             prev_non_empty = Some(trimmed);
         }
     }
-    if rendered.ends_with('\n') { out } else { out.trim_end_matches('\n').to_string() }
+    if rendered.ends_with('\n') {
+        out
+    } else {
+        out.trim_end_matches('\n').to_string()
+    }
 }
 
 fn restore_promoted_comment_style(rendered: &str) -> String {
@@ -548,12 +530,15 @@ fn restore_promoted_comment_style(rendered: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
-    if rendered.ends_with('\n') { out } else { out.trim_end_matches('\n').to_owned() }
+    if rendered.ends_with('\n') {
+        out
+    } else {
+        out.trim_end_matches('\n').to_owned()
+    }
 }
 
 fn differs_only_by_whitespace(before: &str, after: &str) -> bool {
-    strip_whitespace_and_trailing_commas(before)
-        == strip_whitespace_and_trailing_commas(after)
+    strip_whitespace_and_trailing_commas(before) == strip_whitespace_and_trailing_commas(after)
 }
 
 fn strip_whitespace_and_trailing_commas(input: &str) -> String {
@@ -586,8 +571,9 @@ fn strip_whitespace_and_trailing_commas(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ItemSegment, NormalizedFile, differs_only_by_whitespace, render_segments,
-        reorder_items,
+        ItemSegment, NormalizedFile, Normalizer, differs_only_by_whitespace,
+        normalize_function_spacing, promote_leading_item_comments, render_segments, reorder_items,
+        restore_promoted_comment_style,
     };
     use crate::config::{ItemOrder, NormalizeConfig};
     fn parse_item(src: &str) -> syn::Item {
@@ -597,6 +583,7 @@ mod tests {
         ItemSegment {
             item: parse_item(src),
             leading_comments: Vec::new(),
+            source: src.to_owned(),
         }
     }
     #[test]
@@ -618,9 +605,14 @@ mod tests {
         let items = vec![segment("const A: usize = 1;"), segment("mod attacks;")];
         let config = NormalizeConfig {
             order: vec![
-                ItemOrder::Imports, ItemOrder::Constants, ItemOrder::Mods,
-                ItemOrder::Enums, ItemOrder::Structs, ItemOrder::Impls,
-                ItemOrder::Traits, ItemOrder::Tests,
+                ItemOrder::Imports,
+                ItemOrder::Constants,
+                ItemOrder::Mods,
+                ItemOrder::Enums,
+                ItemOrder::Structs,
+                ItemOrder::Impls,
+                ItemOrder::Traits,
+                ItemOrder::Tests,
             ],
             ..NormalizeConfig::default()
         };
@@ -641,10 +633,21 @@ mod tests {
             shebang: None,
             attrs: Vec::new(),
             items: vec![
-                ItemSegment { item : parse_item("mod attacks;"), leading_comments :
-                Vec::new(), }, ItemSegment { item : parse_item("mod magics;"),
-                leading_comments : Vec::new(), }, ItemSegment { item :
-                parse_item("mod maps;"), leading_comments : Vec::new(), },
+                ItemSegment {
+                    item: parse_item("mod attacks;"),
+                    leading_comments: Vec::new(),
+                    source: "mod attacks;".to_owned(),
+                },
+                ItemSegment {
+                    item: parse_item("mod magics;"),
+                    leading_comments: Vec::new(),
+                    source: "mod magics;".to_owned(),
+                },
+                ItemSegment {
+                    item: parse_item("mod maps;"),
+                    leading_comments: Vec::new(),
+                    source: "mod maps;".to_owned(),
+                },
             ],
         };
         let rendered = render_segments(normalized, &NormalizeConfig::default());
@@ -656,9 +659,16 @@ mod tests {
             shebang: None,
             attrs: Vec::new(),
             items: vec![
-                ItemSegment { item : parse_item("mod attacks;"), leading_comments :
-                Vec::new(), }, ItemSegment { item : parse_item("mod magics;"),
-                leading_comments : Vec::new(), },
+                ItemSegment {
+                    item: parse_item("mod attacks;"),
+                    leading_comments: Vec::new(),
+                    source: "mod attacks;".to_owned(),
+                },
+                ItemSegment {
+                    item: parse_item("mod magics;"),
+                    leading_comments: Vec::new(),
+                    source: "mod magics;".to_owned(),
+                },
             ],
         };
         let config = NormalizeConfig {
@@ -691,6 +701,48 @@ pub fn sliding_attacks(square: u8, occupancies: u64, directions: &[i8]) -> u64 {
     fn detects_real_non_whitespace_change() {
         let before = "fn f() { let x = 1 + 2; }";
         let after = "fn f() { let x = 1 - 2; }";
-        assert!(! differs_only_by_whitespace(before, after));
+        assert!(!differs_only_by_whitespace(before, after));
+    }
+    #[test]
+    fn preserves_plain_comment_before_impl_method() {
+        let src = r#"
+impl Position {
+    pub fn halfmove_clock_bucket(&self) -> usize {
+        (self.halfmove_clock().saturating_sub(8) as usize / 8).min(15)
+    }
+
+    pub fn hash(&self) -> u64 {
+        // To mitigate Graph History Interaction (GHI) problems, the hash key is changed
+        // every 8 plies to distinguish between positions that would otherwise appear
+        // identical to the transposition table.
+        self.state.key ^ ZOBRIST.halfmove_clock[self.halfmove_clock_bucket()]
+    }
+
+    pub const fn pawn_key(&self) -> u64 {
+        self.state.pawn_key
+    }
+}
+"#;
+
+        let promoted = promote_leading_item_comments(src);
+        let parsed = syn::parse_file(&promoted).expect("valid rust file");
+        let rendered = render_segments(
+            Normalizer::new(parsed, &promoted).normalize(&NormalizeConfig::default()),
+            &NormalizeConfig::default(),
+        );
+        let restored = normalize_function_spacing(&restore_promoted_comment_style(&rendered));
+
+        assert!(
+            restored.contains(
+                "// To mitigate Graph History Interaction (GHI) problems, the hash key is changed"
+            ),
+            "restored source should keep the method comment"
+        );
+        assert!(
+            restored.contains(
+                "// every 8 plies to distinguish between positions that would otherwise appear"
+            ),
+            "restored source should keep multi-line comment blocks"
+        );
     }
 }
