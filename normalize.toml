@@ -1,0 +1,21 @@
+# Sample ordering that differs from the default ordering documented in README.md.
+# Prefer type-locality: place implementations with their owning data types.
+priority = [
+  "attributes",
+  "imports",
+  "modules",
+  "macros",
+  "constants",
+  "types",
+  "structs",
+  "impls",
+  "enums",
+  "traits",
+  "extern_blocks",
+  "functions",
+  "tests"
+]
+
+compact_use_block = true
+compact_const_block = true
+compact_mod_block = true

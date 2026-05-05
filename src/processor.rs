@@ -1,6 +1,5 @@
 use crate::config::{ItemOrder, NormalizeConfig};
 use similar::TextDiff;
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
@@ -170,13 +169,14 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     let mut macros = Vec::new();
     let mut constants = Vec::new();
     let mut type_aliases = Vec::new();
-    let mut data = Vec::new();
+    let mut structs = Vec::new();
+    let mut enums = Vec::new();
     let mut traits = Vec::new();
     let mut foreign = Vec::new();
     let mut functions = Vec::new();
     let mut tests = Vec::new();
     let mut others = Vec::new();
-    let mut impls_by_type: HashMap<String, Vec<ItemSegment>> = HashMap::new();
+    let mut typed_impls: Vec<(String, Option<ItemSegment>)> = Vec::new();
     let mut fallback_impls = Vec::new();
     for item in items {
         match &item.item {
@@ -189,10 +189,11 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
             Item::Macro(_) => macros.push(item),
             Item::Const(_) | Item::Static(_) => constants.push(item),
             Item::Type(_) => type_aliases.push(item),
-            Item::Struct(_) | Item::Enum(_) | Item::Union(_) => data.push(item),
+            Item::Struct(_) | Item::Union(_) => structs.push(item),
+            Item::Enum(_) => enums.push(item),
             Item::Impl(item_impl) => {
                 if let Some(type_name) = inherent_impl_target(&item_impl) {
-                    impls_by_type.entry(type_name).or_default().push(item);
+                    typed_impls.push((type_name, Some(item)));
                 } else {
                     fallback_impls.push(item);
                 }
@@ -222,20 +223,61 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
         out.extend(type_aliases);
         out.extend(constants);
     }
-    for item in data {
-        if let Some(data_name) = data_item_name(&item.item) {
-            out.push(item);
-            if let Some(mut impls) = impls_by_type.remove(&data_name) {
-                out.append(&mut impls);
+
+    let structs_rank = config.rank(ItemOrder::Structs, 0);
+    let enums_rank = config.rank(ItemOrder::Enums, 1);
+    let impls_rank = config.rank(ItemOrder::Impls, 2);
+    let attach_impls_to_structs = impls_rank <= enums_rank;
+    let mut data_order = vec![
+        (structs_rank, 0usize),
+        (enums_rank, 1usize),
+        (impls_rank, 2usize),
+    ];
+    data_order.sort_by_key(|(rank, tie_break)| (*rank, *tie_break));
+    let mut structs_bucket = Some(structs);
+    let mut enums_bucket = Some(enums);
+    let mut fallback_impls_bucket = Some(fallback_impls);
+
+    for (_, group) in data_order {
+        match group {
+            0 => {
+                if let Some(struct_items) = structs_bucket.take() {
+                    for item in struct_items {
+                        let data_name = data_item_name(&item.item);
+                        out.push(item);
+                        if attach_impls_to_structs {
+                            if let Some(data_name) = data_name {
+                                for (impl_target, impl_item) in &mut typed_impls {
+                                    if impl_target == &data_name {
+                                        if let Some(segment) = impl_item.take() {
+                                            out.push(segment);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        } else {
-            out.push(item);
+            1 => {
+                if let Some(enum_items) = enums_bucket.take() {
+                    out.extend(enum_items);
+                }
+            }
+            2 => {
+                for (_, impl_item) in &mut typed_impls {
+                    if let Some(segment) = impl_item.take() {
+                        out.push(segment);
+                    }
+                }
+                if let Some(impl_items) = fallback_impls_bucket.take() {
+                    out.extend(impl_items);
+                }
+            }
+            _ => {}
         }
     }
-    for (_, mut impls) in impls_by_type {
-        out.append(&mut impls);
-    }
-    out.extend(fallback_impls);
+
     let mut tail_order = vec![
         (config.rank(ItemOrder::Traits, 0), 0usize),
         (config.rank(ItemOrder::Foreign, 1), 1usize),
@@ -737,6 +779,48 @@ mod tests {
         assert!(rendered.starts_with(
             "extern \"C\" {\n    fn eval_native() -> i32;\n}\n\nfn eval() -> Score { Score(0) }"
         ),);
+    }
+
+    #[test]
+    fn honors_struct_impl_enum_priority_from_config() {
+        let items = vec![
+            segment("enum Flavor { Vanilla }"),
+            segment("impl Cookie { fn id(&self) -> u8 { 1 } }"),
+            segment("struct Cookie;"),
+        ];
+        let config = NormalizeConfig {
+            order: vec![
+                ItemOrder::Attributes,
+                ItemOrder::Imports,
+                ItemOrder::Mods,
+                ItemOrder::Macros,
+                ItemOrder::Constants,
+                ItemOrder::Types,
+                ItemOrder::Structs,
+                ItemOrder::Impls,
+                ItemOrder::Enums,
+                ItemOrder::Traits,
+                ItemOrder::Foreign,
+                ItemOrder::Functions,
+                ItemOrder::Tests,
+            ],
+            ..NormalizeConfig::default()
+        };
+
+        let reordered = reorder_items(items, &config);
+        let rendered = render_segments(
+            NormalizedFile {
+                shebang: None,
+                attrs: Vec::new(),
+                items: reordered,
+            },
+            &config,
+        );
+
+        let struct_pos = rendered.find("struct Cookie;").expect("struct present");
+        let impl_pos = rendered.find("impl Cookie").expect("impl present");
+        let enum_pos = rendered.find("enum Flavor").expect("enum present");
+        assert!(struct_pos < impl_pos && impl_pos < enum_pos);
     }
 
     #[test]

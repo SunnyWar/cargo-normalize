@@ -72,26 +72,6 @@ impl NormalizeConfig {
     }
 }
 
-#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ItemOrder {
-    Attributes,
-    Imports,
-    #[serde(alias = "modules")]
-    Mods,
-    Macros,
-    Constants,
-    Types,
-    Enums,
-    Structs,
-    Impls,
-    Traits,
-    #[serde(rename = "ffi", alias = "foreign", alias = "extern_blocks")]
-    Foreign,
-    Functions,
-    Tests,
-}
-
 impl Default for NormalizeConfig {
     fn default() -> Self {
         Self {
@@ -115,6 +95,26 @@ impl Default for NormalizeConfig {
             compact_mod_block: true,
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemOrder {
+    Attributes,
+    Imports,
+    #[serde(alias = "modules")]
+    Mods,
+    Macros,
+    Constants,
+    Types,
+    Enums,
+    Structs,
+    Impls,
+    Traits,
+    #[serde(rename = "ffi", alias = "foreign", alias = "extern_blocks")]
+    Foreign,
+    Functions,
+    Tests,
 }
 
 pub fn parse_cli() -> Cli {
