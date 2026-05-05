@@ -64,10 +64,23 @@ impl Normalizer {
             original: original.to_owned(),
         }
     }
-    fn normalize(self) -> Vec<ItemSegment> {
+    fn normalize(self) -> NormalizedFile {
         let segments = segment_items(self.file.items, &self.original);
-        reorder_items(segments)
+        let items = reorder_items(segments);
+
+        NormalizedFile {
+            shebang: self.file.shebang,
+            attrs: self.file.attrs,
+            items,
+        }
     }
+}
+
+#[derive(Debug, Clone)]
+struct NormalizedFile {
+    shebang: Option<String>,
+    attrs: Vec<Attribute>,
+    items: Vec<ItemSegment>,
 }
 
 #[derive(Debug, Clone)]
@@ -305,10 +318,23 @@ fn is_plain_line_comment(trimmed: &str) -> bool {
     trimmed.starts_with("//") && !trimmed.starts_with("///") && !trimmed.starts_with("//!")
 }
 
-fn render_segments(segments: Vec<ItemSegment>) -> String {
+fn render_segments(normalized: NormalizedFile) -> String {
     let mut out = String::new();
 
-    for segment in segments {
+    if normalized.shebang.is_some() || !normalized.attrs.is_empty() {
+        let preamble = prettyplease::unparse(&syn::File {
+            shebang: normalized.shebang,
+            attrs: normalized.attrs,
+            items: Vec::new(),
+        });
+
+        if !preamble.trim().is_empty() {
+            out.push_str(preamble.trim_end());
+            out.push_str("\n\n");
+        }
+    }
+
+    for segment in normalized.items {
         if !segment.leading_comments.is_empty() {
             for line in segment.leading_comments {
                 out.push_str(&line);
