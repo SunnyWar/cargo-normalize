@@ -1,3 +1,4 @@
+use crate::config::NormalizeConfig;
 use similar::TextDiff;
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -20,11 +21,12 @@ pub struct ProcessSummary {
 #[derive(Debug, Clone)]
 pub struct Processor {
     check: bool,
+    config: NormalizeConfig,
 }
 
 impl Processor {
-    pub fn new(check: bool) -> Self {
-        Self { check }
+    pub fn new(check: bool, config: NormalizeConfig) -> Self {
+        Self { check, config }
     }
     pub fn run(&self, root: &Path) -> Result<ProcessSummary, String> {
         let files = collect_rust_files(root)?;
@@ -46,7 +48,7 @@ impl Processor {
             .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?;
         let normalized = Normalizer::new(parsed, &promoted_comments).normalize();
         let rendered = normalize_function_spacing(
-            &restore_promoted_comment_style(&render_segments(normalized)),
+            &restore_promoted_comment_style(&render_segments(normalized, &self.config)),
         );
         if original == rendered {
             return Ok(false);
@@ -98,6 +100,12 @@ struct NormalizedFile {
 struct ItemSegment {
     item: Item,
     leading_comments: Vec<String>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum CompactGroup {
+    Use,
+    Const,
 }
 
 fn collect_rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
@@ -333,7 +341,7 @@ fn is_plain_line_comment(trimmed: &str) -> bool {
         && !trimmed.starts_with("//!")
 }
 
-fn render_segments(normalized: NormalizedFile) -> String {
+fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig) -> String {
     let mut out = String::new();
     if normalized.shebang.is_some() || !normalized.attrs.is_empty() {
         let preamble = prettyplease::unparse(
@@ -348,10 +356,10 @@ fn render_segments(normalized: NormalizedFile) -> String {
             out.push_str("\n\n");
         }
     }
-    let use_flags: Vec<bool> = normalized
+    let compact_groups: Vec<Option<CompactGroup>> = normalized
         .items
         .iter()
-        .map(|segment| matches!(& segment.item, Item::Use(_)))
+        .map(|segment| compact_group_for_item(&segment.item, config))
         .collect();
     let total = normalized.items.len();
     for (idx, segment) in normalized.items.into_iter().enumerate() {
@@ -371,9 +379,9 @@ fn render_segments(normalized: NormalizedFile) -> String {
         out.push_str(item_source.trim_end());
         let is_last = idx + 1 == total;
         if !is_last {
-            let current_is_use = use_flags[idx];
-            let next_is_use = use_flags[idx + 1];
-            if current_is_use && next_is_use {
+            if compact_groups[idx].is_some()
+                && compact_groups[idx] == compact_groups[idx + 1]
+            {
                 out.push('\n');
             } else {
                 out.push_str("\n\n");
@@ -385,6 +393,19 @@ fn render_segments(normalized: NormalizedFile) -> String {
     out.truncate(out.trim_end_matches('\n').len());
     out.push('\n');
     out
+}
+
+fn compact_group_for_item(
+    item: &Item,
+    config: &NormalizeConfig,
+) -> Option<CompactGroup> {
+    match item {
+        Item::Use(_) if config.compact_use_block => Some(CompactGroup::Use),
+        Item::Const(_) | Item::Static(_) if config.compact_const_block => {
+            Some(CompactGroup::Const)
+        }
+        _ => None,
+    }
 }
 
 fn promote_leading_item_comments(source: &str) -> String {
