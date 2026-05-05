@@ -8,15 +8,20 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Item, ItemImpl, Type};
 use tempfile::NamedTempFile;
 use walkdir::WalkDir;
+
+const PROMOTED_COMMENT_MARKER: &str = "__cargo_normalize_promoted__";
+
 #[derive(Debug, Clone, Default)]
 pub struct ProcessSummary {
     pub scanned: usize,
     pub changed: usize,
 }
+
 #[derive(Debug, Clone)]
 pub struct Processor {
     check: bool,
 }
+
 impl Processor {
     pub fn new(check: bool) -> Self {
         Self { check }
@@ -40,8 +45,13 @@ impl Processor {
         let parsed = syn::parse_file(&promoted_comments)
             .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?;
         let normalized = Normalizer::new(parsed, &promoted_comments).normalize();
-        let rendered = normalize_function_spacing(&render_segments(normalized));
+        let rendered = normalize_function_spacing(
+            &restore_promoted_comment_style(&render_segments(normalized)),
+        );
         if original == rendered {
+            return Ok(false);
+        }
+        if differs_only_by_whitespace(&original, &rendered) {
             return Ok(false);
         }
         if self.check {
@@ -53,10 +63,12 @@ impl Processor {
         Ok(true)
     }
 }
+
 pub struct Normalizer {
     file: syn::File,
     original: String,
 }
+
 impl Normalizer {
     fn new(file: syn::File, original: &str) -> Self {
         Self {
@@ -67,7 +79,6 @@ impl Normalizer {
     fn normalize(self) -> NormalizedFile {
         let segments = segment_items(self.file.items, &self.original);
         let items = reorder_items(segments);
-
         NormalizedFile {
             shebang: self.file.shebang,
             attrs: self.file.attrs,
@@ -94,20 +105,25 @@ fn collect_rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
         if root.extension() == Some(OsStr::new("rs")) {
             return Ok(vec![root.to_path_buf()]);
         }
-        return Err(format!(
-            "Path {} is a file but not a Rust source (.rs)",
-            root.display()
-        ));
+        return Err(
+            format!("Path {} is a file but not a Rust source (.rs)", root.display()),
+        );
     }
     if !root.is_dir() {
         return Err(format!("Path does not exist: {}", root.display()));
     }
     let mut files = Vec::new();
-    for entry in WalkDir::new(root).into_iter().filter_entry(|entry| {
-        entry.file_name() != OsStr::new("target") && entry.file_name() != OsStr::new(".git")
-    }) {
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.file_name() != OsStr::new("target")
+                && entry.file_name() != OsStr::new(".git")
+        })
+    {
         let entry = entry.map_err(|err| format!("Directory walk failed: {err}"))?;
-        if entry.file_type().is_file() && entry.path().extension() == Some(OsStr::new("rs")) {
+        if entry.file_type().is_file()
+            && entry.path().extension() == Some(OsStr::new("rs"))
+        {
             files.push(entry.path().to_path_buf());
         }
     }
@@ -120,10 +136,7 @@ fn print_diff(path: &Path, before: &str, after: &str) {
     let unified = diff
         .unified_diff()
         .context_radius(3)
-        .header(
-            &format!("a/{}", path.display()),
-            &format!("b/{}", path.display()),
-        )
+        .header(&format!("a/{}", path.display()), &format!("b/{}", path.display()))
         .to_string();
     println!("{unified}");
 }
@@ -131,15 +144,25 @@ fn print_diff(path: &Path, before: &str, after: &str) {
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
-        .ok_or_else(|| format!("Cannot determine parent directory for {}", path.display()))?;
+        .ok_or_else(|| {
+            format!("Cannot determine parent directory for {}", path.display())
+        })?;
     let mut temp = NamedTempFile::new_in(parent)
-        .map_err(|err| format!("Failed to create temp file in {}: {err}", parent.display()))?;
+        .map_err(|err| {
+            format!("Failed to create temp file in {}: {err}", parent.display())
+        })?;
     temp.write_all(bytes)
-        .map_err(|err| format!("Failed to write temp file for {}: {err}", path.display()))?;
+        .map_err(|err| {
+            format!("Failed to write temp file for {}: {err}", path.display())
+        })?;
     temp.flush()
-        .map_err(|err| format!("Failed to flush temp file for {}: {err}", path.display()))?;
+        .map_err(|err| {
+            format!("Failed to flush temp file for {}: {err}", path.display())
+        })?;
     temp.persist(path)
-        .map_err(|err| format!("Failed to persist temp file to {}: {err}", path.display()))?;
+        .map_err(|err| {
+            format!("Failed to persist temp file to {}: {err}", path.display())
+        })?;
     Ok(())
 }
 
@@ -165,7 +188,9 @@ fn reorder_items(items: Vec<ItemSegment>) -> Vec<ItemSegment> {
                 }
             }
             Item::Trait(_) => traits.push(item),
-            Item::Mod(item_mod) if is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) => {
+            Item::Mod(
+                item_mod,
+            ) if is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) => {
                 tests.push(item);
             }
             _ => others.push(item),
@@ -225,12 +250,13 @@ fn attr_is_cfg_test(attr: &Attribute) -> bool {
         return false;
     }
     let mut found = false;
-    let _ = attr.parse_nested_meta(|meta| {
-        if meta.path.is_ident("test") {
-            found = true;
-        }
-        Ok(())
-    });
+    let _ = attr
+        .parse_nested_meta(|meta| {
+            if meta.path.is_ident("test") {
+                found = true;
+            }
+            Ok(())
+        });
     found
 }
 
@@ -238,21 +264,22 @@ fn segment_items(items: Vec<Item>, source: &str) -> Vec<ItemSegment> {
     let lines: Vec<&str> = source.lines().collect();
     let mut prev_end_line = 1usize;
     let mut segments = Vec::with_capacity(items.len());
-
     for item in items {
         let span = item.span();
         let start_line = span.start().line.max(1);
         let end_line = span.end().line.max(start_line);
-        let leading_comments = extract_leading_comments(&lines, prev_end_line, start_line);
-
-        segments.push(ItemSegment {
-            item,
-            leading_comments,
-        });
-
+        let leading_comments = extract_leading_comments(
+            &lines,
+            prev_end_line,
+            start_line,
+        );
+        segments
+            .push(ItemSegment {
+                item,
+                leading_comments,
+            });
         prev_end_line = end_line.saturating_add(1);
     }
-
     segments
 }
 
@@ -264,14 +291,12 @@ fn extract_leading_comments(
     if item_start_line <= 1 || lines.is_empty() {
         return Vec::new();
     }
-
     let mut begin = item_start_line.saturating_sub(1);
     while begin >= min_line {
         let idx = begin.saturating_sub(1);
         if idx >= lines.len() {
             break;
         }
-
         let trimmed = lines[idx].trim();
         if trimmed.is_empty() || is_plain_line_comment(trimmed) {
             if begin == min_line {
@@ -282,76 +307,81 @@ fn extract_leading_comments(
         }
         break;
     }
-
-    let first = if begin < min_line {
-        min_line
-    } else {
-        begin.saturating_add(1)
-    };
+    let first = if begin < min_line { min_line } else { begin.saturating_add(1) };
     if first >= item_start_line {
         return Vec::new();
     }
-
     let mut block: Vec<String> = (first..item_start_line)
         .filter_map(|line_no| {
-            lines
-                .get(line_no.saturating_sub(1))
-                .map(|line| (*line).to_owned())
+            lines.get(line_no.saturating_sub(1)).map(|line| (*line).to_owned())
         })
         .collect();
-
     if !block.iter().any(|line| is_plain_line_comment(line.trim())) {
         return Vec::new();
     }
-
     while block.first().is_some_and(|line| line.trim().is_empty()) {
         block.remove(0);
     }
     while block.last().is_some_and(|line| line.trim().is_empty()) {
         block.pop();
     }
-
     block
 }
 
 fn is_plain_line_comment(trimmed: &str) -> bool {
-    trimmed.starts_with("//") && !trimmed.starts_with("///") && !trimmed.starts_with("//!")
+    trimmed.starts_with("//") && !trimmed.starts_with("///")
+        && !trimmed.starts_with("//!")
 }
 
 fn render_segments(normalized: NormalizedFile) -> String {
     let mut out = String::new();
-
     if normalized.shebang.is_some() || !normalized.attrs.is_empty() {
-        let preamble = prettyplease::unparse(&syn::File {
-            shebang: normalized.shebang,
-            attrs: normalized.attrs,
-            items: Vec::new(),
-        });
-
+        let preamble = prettyplease::unparse(
+            &syn::File {
+                shebang: normalized.shebang,
+                attrs: normalized.attrs,
+                items: Vec::new(),
+            },
+        );
         if !preamble.trim().is_empty() {
             out.push_str(preamble.trim_end());
             out.push_str("\n\n");
         }
     }
-
-    for segment in normalized.items {
+    let use_flags: Vec<bool> = normalized
+        .items
+        .iter()
+        .map(|segment| matches!(& segment.item, Item::Use(_)))
+        .collect();
+    let total = normalized.items.len();
+    for (idx, segment) in normalized.items.into_iter().enumerate() {
         if !segment.leading_comments.is_empty() {
             for line in segment.leading_comments {
                 out.push_str(&line);
                 out.push('\n');
             }
         }
-
-        let item_source = prettyplease::unparse(&syn::File {
-            shebang: None,
-            attrs: Vec::new(),
-            items: vec![segment.item],
-        });
-
+        let item_source = prettyplease::unparse(
+            &syn::File {
+                shebang: None,
+                attrs: Vec::new(),
+                items: vec![segment.item],
+            },
+        );
         out.push_str(item_source.trim_end());
-        out.push_str("\n\n");
+        let is_last = idx + 1 == total;
+        if !is_last {
+            let current_is_use = use_flags[idx];
+            let next_is_use = use_flags[idx + 1];
+            if current_is_use && next_is_use {
+                out.push('\n');
+            } else {
+                out.push_str("\n\n");
+            }
+        } else {
+            out.push('\n');
+        }
     }
-
     out.truncate(out.trim_end_matches('\n').len());
     out.push('\n');
     out
@@ -361,7 +391,6 @@ fn promote_leading_item_comments(source: &str) -> String {
     let lines: Vec<&str> = source.lines().collect();
     let mut out = Vec::with_capacity(lines.len());
     let mut i = 0usize;
-
     while i < lines.len() {
         let trimmed = lines[i].trim_start();
         if !is_plain_line_comment(trimmed) {
@@ -369,7 +398,6 @@ fn promote_leading_item_comments(source: &str) -> String {
             i += 1;
             continue;
         }
-
         let block_start = i;
         let mut block_end = i;
         while block_end + 1 < lines.len() {
@@ -380,22 +408,24 @@ fn promote_leading_item_comments(source: &str) -> String {
                 break;
             }
         }
-
         let mut lookahead = block_end + 1;
         while lookahead < lines.len() && lines[lookahead].trim_start().is_empty() {
             lookahead += 1;
         }
-
-        let attach_to_item =
-            lookahead < lines.len() && is_item_declaration_line(lines[lookahead].trim_start());
-
+        let attach_to_item = lookahead < lines.len()
+            && is_item_declaration_line(lines[lookahead].trim_start());
         if attach_to_item {
             for line in &lines[block_start..=block_end] {
                 let trimmed_line = line.trim_start();
                 if is_plain_line_comment(trimmed_line) {
                     let indent_len = line.len().saturating_sub(trimmed_line.len());
                     let indent = &line[..indent_len];
-                    out.push(format!("{}///{}", indent, &trimmed_line[2..]));
+                    out.push(
+                        format!(
+                            "{}///{}{}", indent, PROMOTED_COMMENT_MARKER, &
+                            trimmed_line[2..]
+                        ),
+                    );
                 } else {
                     out.push((*line).to_owned());
                 }
@@ -405,10 +435,8 @@ fn promote_leading_item_comments(source: &str) -> String {
                 out.push((*line).to_owned());
             }
         }
-
         i = block_end + 1;
     }
-
     let mut text = out.join("\n");
     if source.ends_with('\n') {
         text.push('\n');
@@ -444,7 +472,6 @@ fn is_item_declaration_line(trimmed: &str) -> bool {
         "static ",
         "pub static ",
     ];
-
     candidates.iter().any(|prefix| trimmed.starts_with(prefix))
 }
 
@@ -465,9 +492,37 @@ fn normalize_function_spacing(rendered: &str) -> String {
             prev_non_empty = Some(trimmed);
         }
     }
-    if rendered.ends_with('\n') {
-        out
-    } else {
-        out.trim_end_matches('\n').to_string()
+    if rendered.ends_with('\n') { out } else { out.trim_end_matches('\n').to_string() }
+}
+
+fn restore_promoted_comment_style(rendered: &str) -> String {
+    let promoted_prefix = format!("///{PROMOTED_COMMENT_MARKER}");
+    let mut out = String::with_capacity(rendered.len());
+    for line in rendered.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix(&promoted_prefix) {
+            let indent_len = line.len().saturating_sub(trimmed.len());
+            let indent = &line[..indent_len];
+            out.push_str(indent);
+            out.push_str("//");
+            out.push_str(rest);
+            out.push('\n');
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if rendered.ends_with('\n') { out } else { out.trim_end_matches('\n').to_owned() }
+}
+
+fn differs_only_by_whitespace(before: &str, after: &str) -> bool {
+    let mut before_chars = before.chars().filter(|ch| !ch.is_whitespace());
+    let mut after_chars = after.chars().filter(|ch| !ch.is_whitespace());
+    loop {
+        match (before_chars.next(), after_chars.next()) {
+            (Some(a), Some(b)) if a == b => continue,
+            (None, None) => return true,
+            _ => return false,
+        }
     }
 }
