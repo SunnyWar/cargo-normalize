@@ -537,13 +537,63 @@ fn restore_promoted_comment_style(rendered: &str) -> String {
 }
 
 fn differs_only_by_whitespace(before: &str, after: &str) -> bool {
-    let mut before_chars = before.chars().filter(|ch| !ch.is_whitespace());
-    let mut after_chars = after.chars().filter(|ch| !ch.is_whitespace());
-    loop {
-        match (before_chars.next(), after_chars.next()) {
-            (Some(a), Some(b)) if a == b => continue,
-            (None, None) => return true,
-            _ => return false,
+    strip_whitespace_and_trailing_commas(before)
+        == strip_whitespace_and_trailing_commas(after)
+}
+
+fn strip_whitespace_and_trailing_commas(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch.is_whitespace() {
+            continue;
         }
+        if ch == ',' {
+            let mut lookahead = chars.clone();
+            let mut next_non_whitespace = None;
+            while let Some(next) = lookahead.next() {
+                if next.is_whitespace() {
+                    continue;
+                }
+                next_non_whitespace = Some(next);
+                break;
+            }
+            if !matches!(next_non_whitespace, Some(')' | ']' | '}')) {
+                output.push(',');
+            }
+            continue;
+        }
+        output.push(ch);
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::differs_only_by_whitespace;
+    #[test]
+    fn treats_multiline_fold_and_trailing_comma_as_whitespace_only() {
+        let before = r#"
+pub fn sliding_attacks(square: u8, occupancies: u64, directions: &[i8]) -> u64 {
+    directions.iter().fold(0, |output, &direction| output | generate_slide(square, occupancies, direction))
+}
+"#;
+        let after = r#"
+pub fn sliding_attacks(square: u8, occupancies: u64, directions: &[i8]) -> u64 {
+    directions
+        .iter()
+        .fold(
+            0,
+            |output, &direction| output | generate_slide(square, occupancies, direction),
+        )
+}
+"#;
+        assert!(differs_only_by_whitespace(before, after));
+    }
+    #[test]
+    fn detects_real_non_whitespace_change() {
+        let before = "fn f() { let x = 1 + 2; }";
+        let after = "fn f() { let x = 1 - 2; }";
+        assert!(! differs_only_by_whitespace(before, after));
     }
 }
