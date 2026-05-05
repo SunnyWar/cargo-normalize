@@ -171,6 +171,8 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     let mut constants = Vec::new();
     let mut data = Vec::new();
     let mut traits = Vec::new();
+    let mut type_aliases = Vec::new();
+    let mut functions = Vec::new();
     let mut tests = Vec::new();
     let mut others = Vec::new();
     let mut impls_by_type: HashMap<String, Vec<ItemSegment>> = HashMap::new();
@@ -194,6 +196,8 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
                 }
             }
             Item::Trait(_) => traits.push(item),
+            Item::Type(_) => type_aliases.push(item),
+            Item::Fn(_) => functions.push(item),
             Item::Mod(item_mod) if is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) => {
                 tests.push(item);
             }
@@ -225,6 +229,13 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     }
     out.extend(fallback_impls);
     out.extend(traits);
+    if config.types_before_functions() {
+        out.extend(type_aliases);
+        out.extend(functions);
+    } else {
+        out.extend(functions);
+        out.extend(type_aliases);
+    }
     out.extend(others);
     out.extend(tests);
     out
@@ -658,6 +669,58 @@ mod tests {
         );
         assert!(rendered.starts_with("const A: usize = 1;\n\nmod attacks;"));
     }
+
+    #[test]
+    fn puts_type_aliases_before_free_functions() {
+        let items = vec![
+            segment("fn eval() -> Score { Score(0) }"),
+            segment("type Score = i32;"),
+        ];
+        let reordered = reorder_items(items, &NormalizeConfig::default());
+        let rendered = render_segments(
+            NormalizedFile {
+                shebang: None,
+                attrs: Vec::new(),
+                items: reordered,
+            },
+            &NormalizeConfig::default(),
+        );
+        assert!(rendered.starts_with("type Score = i32;\n\nfn eval() -> Score { Score(0) }"));
+    }
+
+    #[test]
+    fn can_put_free_functions_before_type_aliases_via_config() {
+        let items = vec![
+            segment("fn eval() -> Score { Score(0) }"),
+            segment("type Score = i32;"),
+        ];
+        let config = NormalizeConfig {
+            order: vec![
+                ItemOrder::Imports,
+                ItemOrder::Mods,
+                ItemOrder::Constants,
+                ItemOrder::Enums,
+                ItemOrder::Structs,
+                ItemOrder::Impls,
+                ItemOrder::Traits,
+                ItemOrder::Functions,
+                ItemOrder::Types,
+                ItemOrder::Tests,
+            ],
+            ..NormalizeConfig::default()
+        };
+        let reordered = reorder_items(items, &config);
+        let rendered = render_segments(
+            NormalizedFile {
+                shebang: None,
+                attrs: Vec::new(),
+                items: reordered,
+            },
+            &config,
+        );
+        assert!(rendered.starts_with("fn eval() -> Score { Score(0) }\n\ntype Score = i32;"));
+    }
+
     #[test]
     fn compacts_consecutive_mod_items_by_default() {
         let normalized = NormalizedFile {

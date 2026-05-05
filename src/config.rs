@@ -26,7 +26,10 @@ pub struct NormalizeConfig {
 
 impl NormalizeConfig {
     pub fn mods_before_constants(&self) -> bool {
-        let mods_index = self.order.iter().position(|group| *group == ItemOrder::Mods);
+        let mods_index = self
+            .order
+            .iter()
+            .position(|group| *group == ItemOrder::Mods);
         let constants_index = self
             .order
             .iter()
@@ -38,15 +41,30 @@ impl NormalizeConfig {
             (None, None) => true,
         }
     }
+
+    pub fn types_before_functions(&self) -> bool {
+        let types_index = self
+            .order
+            .iter()
+            .position(|group| *group == ItemOrder::Types);
+        let functions_index = self
+            .order
+            .iter()
+            .position(|group| *group == ItemOrder::Functions);
+        match (types_index, functions_index) {
+            (Some(types_idx), Some(functions_idx)) => types_idx <= functions_idx,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => true,
+        }
+    }
 }
 
 impl NormalizeConfig {
     pub fn load_for_path(path: &Path) -> Result<Self, String> {
         let root = if path.is_file() {
             path.parent()
-                .ok_or_else(|| {
-                    format!("Cannot determine parent directory for {}", path.display())
-                })?
+                .ok_or_else(|| format!("Cannot determine parent directory for {}", path.display()))?
                 .to_path_buf()
         } else {
             path.to_path_buf()
@@ -72,6 +90,8 @@ pub enum ItemOrder {
     Structs,
     Impls,
     Traits,
+    Types,
+    Functions,
     Tests,
 }
 
@@ -79,9 +99,16 @@ impl Default for NormalizeConfig {
     fn default() -> Self {
         Self {
             order: vec![
-                ItemOrder::Imports, ItemOrder::Mods, ItemOrder::Constants,
-                ItemOrder::Enums, ItemOrder::Structs, ItemOrder::Impls,
-                ItemOrder::Traits, ItemOrder::Tests,
+                ItemOrder::Imports,
+                ItemOrder::Mods,
+                ItemOrder::Constants,
+                ItemOrder::Enums,
+                ItemOrder::Structs,
+                ItemOrder::Impls,
+                ItemOrder::Traits,
+                ItemOrder::Types,
+                ItemOrder::Functions,
+                ItemOrder::Tests,
             ],
             compact_use_block: true,
             compact_const_block: true,

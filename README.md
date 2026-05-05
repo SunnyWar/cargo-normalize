@@ -13,13 +13,16 @@ Rust modules often drift into mixed ordering over time: imports scattered betwee
 Default ordering:
 
 1. Imports (`use`)
-2. Modules (`mod`, excluding test modules)
-3. Constants (`const`, `static`)
-4. Enums
-5. Structs
-6. Impls (grouped with their corresponding structs)
-7. Traits
-8. Tests (`#[cfg(test)]`, moved to the bottom)
+2. Include macros (`include!`)
+3. Modules (`mod`, excluding test modules)
+4. Constants (`const`, `static`)
+5. Enums
+6. Structs
+7. Impls (grouped with their corresponding structs)
+8. Traits
+9. Type aliases (`type`)
+10. Free functions (`fn`)
+11. Tests (`#[cfg(test)]`, moved to the bottom)
 
 ## Features
 
@@ -71,6 +74,8 @@ order = [
   "structs",
   "impls",
   "traits",
+  "types",
+  "functions",
   "tests"
 ]
 compact_use_block = true
@@ -80,6 +85,7 @@ compact_mod_block = true
 
 Move `"mods"` above or below `"constants"` in `order` to control their relative placement.
 Set `compact_mod_block = false` if you prefer a blank line between consecutive `mod` declarations.
+Move `"types"` above or below `"functions"` in `order` to control their relative placement.
 
 ## Technical Notes
 
