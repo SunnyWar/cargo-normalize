@@ -385,6 +385,7 @@ fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig) -> Stri
             attrs: normalized.attrs,
             items: Vec::new(),
         });
+        let preamble = normalize_crate_attribute_layout(&preamble);
         if !preamble.trim().is_empty() {
             out.push_str(preamble.trim_end());
             out.push_str("\n\n");
@@ -418,6 +419,12 @@ fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig) -> Stri
     out.truncate(out.trim_end_matches('\n').len());
     out.push('\n');
     out
+}
+
+fn normalize_crate_attribute_layout(preamble: &str) -> String {
+    preamble
+        .replace("] #![", "]\n#![")
+        .replace("]#![", "]\n#![")
 }
 
 fn compact_group_for_item(item: &Item, config: &NormalizeConfig) -> Option<CompactGroup> {
@@ -848,6 +855,21 @@ impl Position {
                 "// every 8 plies to distinguish between positions that would otherwise appear"
             ),
             "restored source should keep multi-line comment blocks"
+        );
+    }
+
+    #[test]
+    fn keeps_crate_attributes_on_separate_lines() {
+        let src = "#![allow(dead_code)]\n#![allow(unused_mut)]\n#![allow(unused_imports)]\n";
+        let parsed = syn::parse_file(src).expect("valid rust file");
+        let rendered = render_segments(
+            Normalizer::new(parsed, src).normalize(&NormalizeConfig::default()),
+            &NormalizeConfig::default(),
+        );
+        assert!(!rendered.contains("] #!["));
+        assert!(
+            rendered
+                .contains("#![allow(dead_code)]\n#![allow(unused_mut)]\n#![allow(unused_imports)]")
         );
     }
 }
