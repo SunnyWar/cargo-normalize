@@ -166,6 +166,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemSegment> {
     let mut imports = Vec::new();
+    let mut includes = Vec::new();
     let mut modules = Vec::new();
     let mut constants = Vec::new();
     let mut data = Vec::new();
@@ -177,6 +178,7 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     for item in items {
         match &item.item {
             Item::Use(_) => imports.push(item),
+            Item::Macro(item_macro) if is_include_macro(item_macro) => includes.push(item),
             Item::Mod(item_mod)
                 if !is_test_module(&item_mod.attrs, &item_mod.ident.to_string()) =>
             {
@@ -200,6 +202,7 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     }
     let mut out = Vec::new();
     out.extend(imports);
+    out.extend(includes);
     if config.mods_before_constants() {
         out.extend(modules);
         out.extend(constants);
@@ -225,6 +228,10 @@ fn reorder_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<ItemS
     out.extend(others);
     out.extend(tests);
     out
+}
+
+fn is_include_macro(item_macro: &syn::ItemMacro) -> bool {
+    item_macro.mac.path.is_ident("include")
 }
 
 fn data_item_name(item: &Item) -> Option<String> {
@@ -600,6 +607,30 @@ mod tests {
         );
         assert!(rendered.starts_with("mod attacks;\n\nconst A: usize = 1;"));
     }
+
+    #[test]
+    fn puts_include_after_use_items() {
+        let items = vec![
+            segment("mod attacks;"),
+            segment("include!(\"generated.rs\");"),
+            segment("use crate::types::Move;"),
+        ];
+        let reordered = reorder_items(items, &NormalizeConfig::default());
+        let rendered = render_segments(
+            NormalizedFile {
+                shebang: None,
+                attrs: Vec::new(),
+                items: reordered,
+            },
+            &NormalizeConfig::default(),
+        );
+        assert!(
+            rendered.starts_with(
+                "use crate::types::Move;\n\ninclude!(\"generated.rs\");\n\nmod attacks;"
+            ),
+        );
+    }
+
     #[test]
     fn can_put_const_before_mod_via_config() {
         let items = vec![segment("const A: usize = 1;"), segment("mod attacks;")];
