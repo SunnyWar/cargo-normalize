@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -10,9 +10,36 @@ pub struct Cli {
     /// Check whether files are normalized without writing changes.
     #[arg(long)]
     pub check: bool,
+    /// Move a single normalization feature. Repeat to move multiple features.
+    #[arg(long, value_enum, action = clap::ArgAction::Append, value_name = "FEATURE")]
+    pub move_feature: Vec<MoveFeature>,
+    /// Move all normalization features.
+    #[arg(long, conflicts_with = "move_feature")]
+    pub all: bool,
     /// File or directory to normalize.
     #[arg(long, value_name = "PATH", default_value = ".")]
     pub path: PathBuf,
+}
+
+impl Cli {
+    pub fn is_effective_check(&self) -> bool {
+        self.check || (!self.all && self.move_feature.is_empty())
+    }
+
+    pub fn effective_move_selection(&self) -> MoveSelection {
+        let effective_check = self.is_effective_check();
+        let implicit_all = !self.all && self.move_feature.is_empty() && effective_check;
+        MoveSelection {
+            all: self.all || implicit_all,
+            features: self.move_feature.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MoveSelection {
+    pub all: bool,
+    pub features: Vec<MoveFeature>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -97,6 +124,25 @@ impl Default for NormalizeConfig {
     }
 }
 
+#[derive(Debug, Copy, Clone, ValueEnum, PartialEq, Eq)]
+pub enum MoveFeature {
+    Attributes,
+    Imports,
+    #[value(name = "modules")]
+    Mods,
+    Macros,
+    Constants,
+    Types,
+    Enums,
+    Structs,
+    Impls,
+    Traits,
+    #[value(name = "extern_blocks")]
+    Foreign,
+    Functions,
+    Tests,
+}
+
 #[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemOrder {
@@ -121,6 +167,9 @@ pub fn parse_cli() -> Cli {
     let mut args: Vec<String> = std::env::args().collect();
     if args.get(1).is_some_and(|arg| arg == "normalize") {
         args.remove(1);
+    }
+    if args.get(1).is_some_and(|arg| arg == "help") {
+        args[1] = "--help".to_owned();
     }
     Cli::parse_from(args)
 }

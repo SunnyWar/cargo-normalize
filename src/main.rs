@@ -5,6 +5,7 @@ mod config;
 mod processor;
 fn main() -> ExitCode {
     let cli = parse_cli();
+    let check_mode = cli.is_effective_check();
 
     let normalize_config = match NormalizeConfig::load_for_path(&cli.path) {
         Ok(config) => config,
@@ -14,7 +15,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let processor = Processor::new(cli.check, normalize_config);
+    let processor = Processor::new(check_mode, cli.effective_move_selection(), normalize_config);
     let summary = match processor.run(&cli.path) {
         Ok(summary) => summary,
         Err(err) => {
@@ -22,7 +23,7 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    if cli.check {
+    if check_mode {
         if summary.changed > 0 {
             eprintln!(
                 "found {} non-normalized file(s) out of {}",

@@ -40,17 +40,53 @@ cargo install cargo-normalize
 
 ## Usage
 
-Normalize the current crate:
+Default mode (no options): check all normalization features, no writes.
 
 ```bash
 cargo normalize
 ```
 
-Check mode (no writes; ideal for CI):
+Move all normalization features:
+
+```bash
+cargo normalize --all
+```
+
+Move specific features (repeat `--move-feature` as needed):
+
+```bash
+cargo normalize --move-feature modules
+cargo normalize --move-feature constants --move-feature functions
+```
+
+Explicit check mode (no writes; ideal for CI):
 
 ```bash
 cargo normalize --check
 ```
+
+Show command-line options:
+
+```bash
+cargo normalize --help
+cargo normalize help
+```
+
+Available values for `--move-feature`:
+
+- `attributes`
+- `imports`
+- `modules`
+- `macros`
+- `constants`
+- `types`
+- `enums`
+- `structs`
+- `impls`
+- `traits`
+- `extern_blocks`
+- `functions`
+- `tests`
 
 ## Configuration
 

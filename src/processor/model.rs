@@ -1,4 +1,4 @@
-use crate::config::NormalizeConfig;
+use crate::config::{MoveSelection, NormalizeConfig};
 use syn::{Attribute, Item};
 
 use super::ordering::reorder_items;
@@ -19,9 +19,13 @@ impl Normalizer {
         }
     }
 
-    pub(super) fn normalize(self, config: &NormalizeConfig) -> NormalizedFile {
+    pub(super) fn normalize(
+        self,
+        config: &NormalizeConfig,
+        selection: &MoveSelection,
+    ) -> NormalizedFile {
         let segments = segment_items(self.file.items, &self.original);
-        let items = reorder_items(segments, config);
+        let items = reorder_items(segments, config, selection);
         NormalizedFile {
             shebang: self.file.shebang,
             attrs: self.file.attrs,

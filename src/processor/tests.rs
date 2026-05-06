@@ -5,7 +5,14 @@ use super::text::{
     differs_only_by_whitespace, normalize_function_spacing, promote_leading_item_comments,
     restore_promoted_comment_style,
 };
-use crate::config::{ItemOrder, NormalizeConfig};
+use crate::config::{ItemOrder, MoveFeature, MoveSelection, NormalizeConfig};
+
+fn selection_all() -> MoveSelection {
+    MoveSelection {
+        all: true,
+        features: Vec::new(),
+    }
+}
 
 fn parse_item(src: &str) -> syn::Item {
     syn::parse_str(src).expect("valid Rust item")
@@ -25,7 +32,7 @@ fn puts_mod_before_macros_by_default() {
         segment("macro_rules! m { () => {}; }"),
         segment("mod attacks;"),
     ];
-    let reordered = reorder_items(items, &NormalizeConfig::default());
+    let reordered = reorder_items(items, &NormalizeConfig::default(), &selection_all());
     let rendered = render_segments(
         NormalizedFile {
             shebang: None,
@@ -46,7 +53,7 @@ fn puts_macros_after_mods_and_use_items_by_default() {
         segment("include!(\"generated.rs\");"),
         segment("use crate::types::Move;"),
     ];
-    let reordered = reorder_items(items, &NormalizeConfig::default());
+    let reordered = reorder_items(items, &NormalizeConfig::default(), &selection_all());
     let rendered = render_segments(
         NormalizedFile {
             shebang: None,
@@ -56,7 +63,8 @@ fn puts_macros_after_mods_and_use_items_by_default() {
         &NormalizeConfig::default(),
     );
     assert!(
-        rendered.starts_with("use crate::types::Move;\n\nmod attacks;\n\ninclude!(\"generated.rs\");"),
+        rendered
+            .starts_with("use crate::types::Move;\n\nmod attacks;\n\ninclude!(\"generated.rs\");"),
     );
 }
 
@@ -83,7 +91,7 @@ fn can_put_macros_before_mods_via_config() {
         ],
         ..NormalizeConfig::default()
     };
-    let reordered = reorder_items(items, &config);
+    let reordered = reorder_items(items, &config, &selection_all());
     let rendered = render_segments(
         NormalizedFile {
             shebang: None,
@@ -103,7 +111,7 @@ fn puts_constants_before_type_aliases_by_default() {
         segment("type Score = i32;"),
         segment("const DEFAULT: Score = 0;"),
     ];
-    let reordered = reorder_items(items, &NormalizeConfig::default());
+    let reordered = reorder_items(items, &NormalizeConfig::default(), &selection_all());
     let rendered = render_segments(
         NormalizedFile {
             shebang: None,
@@ -121,7 +129,7 @@ fn puts_ffi_before_free_functions_by_default() {
         segment("fn eval() -> Score { Score(0) }"),
         segment("extern \"C\" {\n    fn eval_native() -> i32;\n}"),
     ];
-    let reordered = reorder_items(items, &NormalizeConfig::default());
+    let reordered = reorder_items(items, &NormalizeConfig::default(), &selection_all());
     let rendered = render_segments(
         NormalizedFile {
             shebang: None,
@@ -161,7 +169,7 @@ fn honors_struct_impl_enum_priority_from_config() {
         ..NormalizeConfig::default()
     };
 
-    let reordered = reorder_items(items, &config);
+    let reordered = reorder_items(items, &config, &selection_all());
     let rendered = render_segments(
         NormalizedFile {
             shebang: None,
@@ -281,7 +289,7 @@ impl Position {
     let promoted = promote_leading_item_comments(src);
     let parsed = syn::parse_file(&promoted).expect("valid rust file");
     let rendered = render_segments(
-        Normalizer::new(parsed, &promoted).normalize(&NormalizeConfig::default()),
+        Normalizer::new(parsed, &promoted).normalize(&NormalizeConfig::default(), &selection_all()),
         &NormalizeConfig::default(),
     );
     let restored = normalize_function_spacing(&restore_promoted_comment_style(&rendered));
@@ -305,11 +313,65 @@ fn keeps_crate_attributes_on_separate_lines() {
     let src = "#![allow(dead_code)]\n#![allow(unused_mut)]\n#![allow(unused_imports)]\n";
     let parsed = syn::parse_file(src).expect("valid rust file");
     let rendered = render_segments(
-        Normalizer::new(parsed, src).normalize(&NormalizeConfig::default()),
+        Normalizer::new(parsed, src).normalize(&NormalizeConfig::default(), &selection_all()),
         &NormalizeConfig::default(),
     );
     assert!(!rendered.contains("] #!["));
     assert!(
         rendered.contains("#![allow(dead_code)]\n#![allow(unused_mut)]\n#![allow(unused_imports)]")
+    );
+}
+
+#[test]
+fn can_apply_only_mods_macros_feature() {
+    let items = vec![
+        segment("fn helper() {}"),
+        segment("macro_rules! m { () => {}; }"),
+        segment("mod attacks;"),
+    ];
+    let selection = MoveSelection {
+        all: false,
+        features: vec![MoveFeature::Mods],
+    };
+    let reordered = reorder_items(items, &NormalizeConfig::default(), &selection);
+    let rendered = render_segments(
+        NormalizedFile {
+            shebang: None,
+            attrs: Vec::new(),
+            items: reordered,
+        },
+        &NormalizeConfig::default(),
+    );
+
+    assert_eq!(
+        rendered,
+        "fn helper() {}\n\nmod attacks;\n\nmacro_rules! m { () => {}; }\n"
+    );
+}
+
+#[test]
+fn empty_selection_keeps_item_order() {
+    let items = vec![
+        segment("macro_rules! m { () => {}; }"),
+        segment("mod attacks;"),
+        segment("fn helper() {}"),
+    ];
+    let selection = MoveSelection {
+        all: false,
+        features: Vec::new(),
+    };
+    let reordered = reorder_items(items, &NormalizeConfig::default(), &selection);
+    let rendered = render_segments(
+        NormalizedFile {
+            shebang: None,
+            attrs: Vec::new(),
+            items: reordered,
+        },
+        &NormalizeConfig::default(),
+    );
+
+    assert_eq!(
+        rendered,
+        "macro_rules! m { () => {}; }\n\nmod attacks;\n\nfn helper() {}\n"
     );
 }
