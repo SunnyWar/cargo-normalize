@@ -1,4 +1,3 @@
-use similar::TextDiff;
 use std::ffi::OsStr;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -30,19 +29,6 @@ pub(super) fn collect_rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     }
     files.sort();
     Ok(files)
-}
-
-pub(super) fn print_diff(path: &Path, before: &str, after: &str) {
-    let diff = TextDiff::from_lines(before, after);
-    let unified = diff
-        .unified_diff()
-        .context_radius(3)
-        .header(
-            &format!("a/{}", path.display()),
-            &format!("b/{}", path.display()),
-        )
-        .to_string();
-    println!("{unified}");
 }
 
 pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {

@@ -1,8 +1,8 @@
 use crate::config::{MoveSelection, NormalizeConfig};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use super::io::{atomic_write, collect_rust_files, print_diff};
+use super::io::{atomic_write, collect_rust_files};
 use super::model::Normalizer;
 use super::render::render_segments;
 use super::text::{
@@ -14,6 +14,7 @@ use super::text::{
 pub struct ProcessSummary {
     pub scanned: usize,
     pub changed: usize,
+    pub changed_files: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,7 @@ impl Processor {
             let changed = self.process_file(&file)?;
             if changed {
                 summary.changed += 1;
+                summary.changed_files.push(file);
             }
         }
         Ok(summary)
@@ -68,7 +70,6 @@ impl Processor {
             return Ok(false);
         }
         if self.check {
-            print_diff(path, &original, &rendered);
             return Ok(true);
         }
 

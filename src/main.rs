@@ -29,6 +29,9 @@ fn main() -> ExitCode {
                 "found {} non-normalized file(s) out of {}",
                 summary.changed, summary.scanned
             );
+            for path in &summary.changed_files {
+                eprintln!("{}", path.display());
+            }
             return ExitCode::from(1);
         }
         println!("all {} file(s) are normalized", summary.scanned);
