@@ -26,13 +26,18 @@ pub(super) fn render_segments(normalized: NormalizedFile, config: &NormalizeConf
 
     let total = normalized.items.len();
     for (idx, segment) in normalized.items.into_iter().enumerate() {
+        if !segment.module_doc_comments.is_empty() {
+            for line in &segment.module_doc_comments {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
         if !segment.leading_comments.is_empty() {
             for line in segment.leading_comments {
                 out.push_str(&line);
                 out.push('\n');
             }
         }
-
         out.push_str(segment.source.trim_end());
         let is_last = idx + 1 == total;
         if !is_last {

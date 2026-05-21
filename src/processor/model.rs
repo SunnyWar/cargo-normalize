@@ -45,6 +45,7 @@ pub(crate) struct NormalizedFile {
 pub(crate) struct ItemSegment {
     pub(crate) item: Item,
     pub(crate) leading_comments: Vec<String>,
+    pub(crate) module_doc_comments: Vec<String>,
     pub(crate) source: String,
 }
 

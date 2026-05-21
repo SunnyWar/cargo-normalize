@@ -1,6 +1,6 @@
+use super::ItemSegment;
 use crate::config::{ItemOrder, MoveFeature, MoveSelection, NormalizeConfig};
 use syn::{Attribute, Item, ItemImpl, Type};
-use super::ItemSegment;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum MoveAction {

@@ -7,6 +7,6 @@ mod model;
 mod ordering;
 mod render;
 mod segment;
-mod text;
 #[cfg(test)]
 mod tests;
+mod text;

@@ -22,6 +22,7 @@ fn segment(src: &str) -> ItemSegment {
     ItemSegment {
         item: parse_item(src),
         leading_comments: Vec::new(),
+        module_doc_comments: Vec::new(),
         source: src.to_owned(),
     }
 }
@@ -194,16 +195,19 @@ fn compacts_consecutive_mod_items_by_default() {
             ItemSegment {
                 item: parse_item("mod attacks;"),
                 leading_comments: Vec::new(),
+                module_doc_comments: Vec::new(),
                 source: "mod attacks;".to_owned(),
             },
             ItemSegment {
                 item: parse_item("mod magics;"),
                 leading_comments: Vec::new(),
+                module_doc_comments: Vec::new(),
                 source: "mod magics;".to_owned(),
             },
             ItemSegment {
                 item: parse_item("mod maps;"),
                 leading_comments: Vec::new(),
+                module_doc_comments: Vec::new(),
                 source: "mod maps;".to_owned(),
             },
         ],
@@ -221,11 +225,13 @@ fn can_disable_compact_mod_block_via_config() {
             ItemSegment {
                 item: parse_item("mod attacks;"),
                 leading_comments: Vec::new(),
+                module_doc_comments: Vec::new(),
                 source: "mod attacks;".to_owned(),
             },
             ItemSegment {
                 item: parse_item("mod magics;"),
                 leading_comments: Vec::new(),
+                module_doc_comments: Vec::new(),
                 source: "mod magics;".to_owned(),
             },
         ],
