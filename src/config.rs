@@ -107,8 +107,8 @@ impl Default for NormalizeConfig {
         Self {
             order: vec![
                 ItemOrder::Attributes,
-                ItemOrder::Imports,
                 ItemOrder::Mods,
+                ItemOrder::Imports,
                 ItemOrder::Macros,
                 ItemOrder::Constants,
                 ItemOrder::Types,

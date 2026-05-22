@@ -2,8 +2,8 @@
 # Prefer type-locality: place implementations with their owning data types.
 priority = [
   "attributes",
-  "imports",
   "modules",
+  "imports",
   "macros",
   "constants",
   "types",

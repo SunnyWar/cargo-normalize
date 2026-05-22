@@ -38,6 +38,12 @@ Idiomatic ordering:
 cargo install cargo-normalize
 ```
 
+### If installing from local build
+
+```bash
+cargo install --path .
+```
+
 ## Usage
 
 Default mode (no options): check all normalization features, no writes.
