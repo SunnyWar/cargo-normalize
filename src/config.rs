@@ -50,6 +50,9 @@ pub struct NormalizeConfig {
     pub compact_use_block: bool,
     pub compact_const_block: bool,
     pub compact_mod_block: bool,
+    /// If true, insert a one-line comment with the relative path at the top of each .rs file.
+    #[serde(default)]
+    pub relative_path_comment: bool,
 }
 
 impl NormalizeConfig {
@@ -120,6 +123,7 @@ impl Default for NormalizeConfig {
             compact_use_block: true,
             compact_const_block: true,
             compact_mod_block: true,
+            relative_path_comment: false,
         }
     }
 }

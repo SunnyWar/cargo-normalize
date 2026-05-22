@@ -60,7 +60,7 @@ impl Processor {
         let normalized = Normalizer::new(parsed, &promoted_comments)
             .normalize(&self.config, &self.move_selection);
         let rendered = normalize_function_spacing(&restore_promoted_comment_style(
-            &render_segments(normalized, &self.config),
+            &render_segments(normalized, &self.config, Some(path)),
         ));
 
         if original == rendered {

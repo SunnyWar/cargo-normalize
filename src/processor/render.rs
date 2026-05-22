@@ -3,8 +3,25 @@ use syn::Item;
 
 use super::{CompactGroup, NormalizedFile};
 
-pub(super) fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig) -> String {
+use std::path::Path;
+
+pub(super) fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig, file_path: Option<&Path>) -> String {
     let mut out = String::new();
+
+    // Insert relative path comment if enabled and path is provided via config
+
+    if config.relative_path_comment {
+        if let Some(path) = file_path {
+            // Compute relative path to workspace root (current directory)
+            use std::path::PathBuf;
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let rel = path.strip_prefix(&cwd).unwrap_or(path);
+            out.push_str(&format!("// {}\n", rel.display()));
+        } else {
+            out.push_str("// [RELATIVE_PATH_UNKNOWN]\n");
+        }
+    }
+
     if normalized.shebang.is_some() || !normalized.attrs.is_empty() {
         let preamble = prettyplease::unparse(&syn::File {
             shebang: normalized.shebang,
