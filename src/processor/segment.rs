@@ -55,13 +55,17 @@ fn extract_module_doc_comments(
         if trimmed.is_empty() {
             // allow whitespace between //! lines
             block.push(lines[idx].to_owned());
-            if idx == 0 || idx + 1 == min_line { break; }
+            if idx == 0 || idx + 1 == min_line {
+                break;
+            }
             idx = idx.saturating_sub(1);
             continue;
         }
         if is_module_doc_comment(trimmed) {
             block.push(lines[idx].to_owned());
-            if idx == 0 || idx + 1 == min_line { break; }
+            if idx == 0 || idx + 1 == min_line {
+                break;
+            }
             idx = idx.saturating_sub(1);
         } else {
             break;

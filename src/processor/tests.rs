@@ -41,6 +41,7 @@ fn puts_mod_before_macros_by_default() {
             items: reordered,
         },
         &NormalizeConfig::default(),
+        None,
     );
     let mod_pos = rendered.find("mod attacks;").expect("mod item present");
     let macro_pos = rendered.find("macro_rules! m").expect("macro item present");
@@ -62,6 +63,7 @@ fn puts_macros_after_mods_and_use_items_by_default() {
             items: reordered,
         },
         &NormalizeConfig::default(),
+        None,
     );
     assert!(
         rendered
@@ -100,6 +102,7 @@ fn can_put_macros_before_mods_via_config() {
             items: reordered,
         },
         &config,
+        None,
     );
     let mod_pos = rendered.find("mod attacks;").expect("mod item present");
     let macro_pos = rendered.find("macro_rules! m").expect("macro item present");
@@ -120,6 +123,7 @@ fn puts_constants_before_type_aliases_by_default() {
             items: reordered,
         },
         &NormalizeConfig::default(),
+        None,
     );
     assert!(rendered.starts_with("const DEFAULT: Score = 0;\n\ntype Score = i32;"));
 }
@@ -138,6 +142,7 @@ fn puts_ffi_before_free_functions_by_default() {
             items: reordered,
         },
         &NormalizeConfig::default(),
+        None,
     );
     assert!(rendered.starts_with(
         "extern \"C\" {\n    fn eval_native() -> i32;\n}\n\nfn eval() -> Score { Score(0) }"
@@ -178,6 +183,7 @@ fn honors_struct_impl_enum_priority_from_config() {
             items: reordered,
         },
         &config,
+        None,
     );
 
     let struct_pos = rendered.find("struct Cookie;").expect("struct present");
@@ -212,7 +218,7 @@ fn compacts_consecutive_mod_items_by_default() {
             },
         ],
     };
-    let rendered = render_segments(normalized, &NormalizeConfig::default());
+    let rendered = render_segments(normalized, &NormalizeConfig::default(), None);
     assert_eq!(rendered, "mod attacks;\nmod magics;\nmod maps;\n");
 }
 
@@ -240,7 +246,7 @@ fn can_disable_compact_mod_block_via_config() {
         compact_mod_block: false,
         ..NormalizeConfig::default()
     };
-    let rendered = render_segments(normalized, &config);
+    let rendered = render_segments(normalized, &config, None);
     assert_eq!(rendered, "mod attacks;\n\nmod magics;\n");
 }
 
@@ -297,6 +303,7 @@ impl Position {
     let rendered = render_segments(
         Normalizer::new(parsed, &promoted).normalize(&NormalizeConfig::default(), &selection_all()),
         &NormalizeConfig::default(),
+        None,
     );
     let restored = normalize_function_spacing(&restore_promoted_comment_style(&rendered));
 
@@ -321,6 +328,7 @@ fn keeps_crate_attributes_on_separate_lines() {
     let rendered = render_segments(
         Normalizer::new(parsed, src).normalize(&NormalizeConfig::default(), &selection_all()),
         &NormalizeConfig::default(),
+        None,
     );
     assert!(!rendered.contains("] #!["));
     assert!(
@@ -347,6 +355,7 @@ fn can_apply_only_mods_macros_feature() {
             items: reordered,
         },
         &NormalizeConfig::default(),
+        None,
     );
 
     assert_eq!(
@@ -374,6 +383,7 @@ fn empty_selection_keeps_item_order() {
             items: reordered,
         },
         &NormalizeConfig::default(),
+        None,
     );
 
     assert_eq!(

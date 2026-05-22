@@ -5,7 +5,11 @@ use super::{CompactGroup, NormalizedFile};
 
 use std::path::Path;
 
-pub(super) fn render_segments(normalized: NormalizedFile, config: &NormalizeConfig, file_path: Option<&Path>) -> String {
+pub(super) fn render_segments(
+    normalized: NormalizedFile,
+    config: &NormalizeConfig,
+    file_path: Option<&Path>,
+) -> String {
     let mut out = String::new();
 
     // Insert relative path comment if enabled and path is provided via config
