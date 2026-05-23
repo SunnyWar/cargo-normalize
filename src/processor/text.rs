@@ -135,7 +135,7 @@ fn strip_whitespace_and_trailing_commas(input: &str) -> String {
         if ch == ',' {
             let mut lookahead = chars.clone();
             let mut next_non_whitespace = None;
-            while let Some(next) = lookahead.next() {
+            for next in lookahead {
                 if next.is_whitespace() {
                     continue;
                 }

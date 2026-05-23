@@ -47,11 +47,10 @@ fn action_for_feature(feature: MoveFeature) -> Option<MoveAction> {
 fn unique_actions(features: &[MoveFeature]) -> Vec<MoveAction> {
     let mut unique = Vec::new();
     for feature in features {
-        if let Some(action) = action_for_feature(*feature) {
-            if !unique.contains(&action) {
+        if let Some(action) = action_for_feature(*feature)
+            && !unique.contains(&action) {
                 unique.push(action);
             }
-        }
     }
     unique
 }
@@ -75,7 +74,7 @@ fn apply_action(
     let mut reordered_selected = reorder_action_items(selected, action, config).into_iter();
     let mut out = Vec::with_capacity(items.len());
 
-    for (item, is_selected) in items.into_iter().zip(selected_mask.into_iter()) {
+    for (item, is_selected) in items.into_iter().zip(selected_mask) {
         if is_selected {
             if let Some(reordered) = reordered_selected.next() {
                 out.push(reordered);
@@ -220,11 +219,10 @@ fn reorder_all_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<I
                         out.push(item);
                         if let (true, Some(data_name)) = (attach_impls_to_structs, data_name) {
                             for (impl_target, impl_item) in &mut typed_impls {
-                                if impl_target == &data_name {
-                                    if let Some(segment) = impl_item.take() {
+                                if impl_target == &data_name
+                                    && let Some(segment) = impl_item.take() {
                                         out.push(segment);
                                     }
-                                }
                             }
                         }
                     }
@@ -353,11 +351,10 @@ fn reorder_data_items(items: Vec<ItemSegment>, config: &NormalizeConfig) -> Vec<
                         out.push(item);
                         if let (true, Some(data_name)) = (attach_impls_to_structs, data_name) {
                             for (impl_target, impl_item) in &mut typed_impls {
-                                if impl_target == &data_name {
-                                    if let Some(segment) = impl_item.take() {
+                                if impl_target == &data_name
+                                    && let Some(segment) = impl_item.take() {
                                         out.push(segment);
                                     }
-                                }
                             }
                         }
                     }
