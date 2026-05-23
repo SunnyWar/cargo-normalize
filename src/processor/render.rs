@@ -39,35 +39,76 @@ pub(super) fn render_segments(
         }
     }
 
-    let compact_groups: Vec<Option<CompactGroup>> = normalized
-        .items
-        .iter()
-        .map(|segment| compact_group_for_item(&segment.item, config))
-        .collect();
+    // --- Emit all mod items, blank line, all use items, blank line, then the rest ---
+    let mut mods = Vec::new();
+    let mut uses = Vec::new();
+    let mut others = Vec::new();
 
-    let total = normalized.items.len();
-    for (idx, segment) in normalized.items.into_iter().enumerate() {
-        if !segment.module_doc_comments.is_empty() {
-            for line in &segment.module_doc_comments {
-                out.push_str(line);
-                out.push('\n');
-            }
+    for segment in &normalized.items {
+        match &segment.item {
+            Item::Mod(_) => mods.push(segment),
+            Item::Use(_) => uses.push(segment),
+            _ => others.push(segment),
         }
-        if !segment.leading_comments.is_empty() {
-            for line in segment.leading_comments {
-                out.push_str(&line);
-                out.push('\n');
+    }
+
+    if !mods.is_empty() {
+        for segment in &mods {
+            if !segment.module_doc_comments.is_empty() {
+                for line in &segment.module_doc_comments {
+                    out.push_str(line);
+                    out.push('\n');
+                }
             }
+            if !segment.leading_comments.is_empty() {
+                for line in &segment.leading_comments {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            out.push_str(segment.source.trim_end());
+            out.push('\n');
         }
-        out.push_str(segment.source.trim_end());
-        let is_last = idx + 1 == total;
-        if !is_last {
-            if compact_groups[idx].is_some() && compact_groups[idx] == compact_groups[idx + 1] {
-                out.push('\n');
-            } else {
-                out.push_str("\n\n");
+    }
+    if !mods.is_empty() && !uses.is_empty() {
+        out.push('\n');
+    }
+    if !uses.is_empty() {
+        for segment in &uses {
+            if !segment.module_doc_comments.is_empty() {
+                for line in &segment.module_doc_comments {
+                    out.push_str(line);
+                    out.push('\n');
+                }
             }
-        } else {
+            if !segment.leading_comments.is_empty() {
+                for line in &segment.leading_comments {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            out.push_str(segment.source.trim_end());
+            out.push('\n');
+        }
+    }
+    if (!mods.is_empty() || !uses.is_empty()) && !others.is_empty() {
+        out.push('\n');
+    }
+    if !others.is_empty() {
+        for segment in &others {
+            if !segment.module_doc_comments.is_empty() {
+                for line in &segment.module_doc_comments {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            if !segment.leading_comments.is_empty() {
+                for line in &segment.leading_comments {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            out.push_str(segment.source.trim_end());
             out.push('\n');
         }
     }

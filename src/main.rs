@@ -1,8 +1,10 @@
+mod config;
+mod processor;
+
 use config::{NormalizeConfig, parse_cli};
 use processor::Processor;
 use std::process::ExitCode;
-mod config;
-mod processor;
+
 fn main() -> ExitCode {
     let cli = parse_cli();
     let check_mode = cli.is_effective_check();

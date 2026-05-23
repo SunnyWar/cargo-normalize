@@ -7,6 +7,31 @@ use super::text::{
 };
 use crate::config::{ItemOrder, MoveFeature, MoveSelection, NormalizeConfig};
 
+#[test]
+fn mods_then_uses_then_rest() {
+    let items = vec![
+        segment("use log::{error, info, warn};"),
+        segment("mod cli_args;"),
+        segment("use clap::Parser;"),
+        segment("mod util;"),
+        segment("fn main() {}"),
+    ];
+    let reordered = reorder_items(items, &NormalizeConfig::default(), &selection_all());
+    let rendered = render_segments(
+        NormalizedFile {
+            shebang: None,
+            attrs: Vec::new(),
+            items: reordered,
+        },
+        &NormalizeConfig::default(),
+        None,
+    );
+    assert_eq!(
+        rendered.trim(),
+        "mod cli_args;\nmod util;\n\nuse log::{error, info, warn};\nuse clap::Parser;\n\nfn main() {}".trim()
+    );
+}
+
 fn selection_all() -> MoveSelection {
     MoveSelection {
         all: true,
@@ -26,7 +51,6 @@ fn segment(src: &str) -> ItemSegment {
         source: src.to_owned(),
     }
 }
-
 #[test]
 fn puts_mod_before_macros_by_default() {
     let items = vec![
@@ -47,7 +71,6 @@ fn puts_mod_before_macros_by_default() {
     let macro_pos = rendered.find("macro_rules! m").expect("macro item present");
     assert!(mod_pos < macro_pos);
 }
-
 #[test]
 fn puts_macros_after_mods_and_use_items_by_default() {
     let items = vec![
@@ -65,12 +88,11 @@ fn puts_macros_after_mods_and_use_items_by_default() {
         &NormalizeConfig::default(),
         None,
     );
-    assert!(
-        rendered
-            .starts_with("use crate::types::Move;\n\nmod attacks;\n\ninclude!(\"generated.rs\");"),
+    assert_eq!(
+        rendered.trim(),
+        "mod attacks;\n\nuse crate::types::Move;\n\ninclude!(\"generated.rs\");".trim()
     );
 }
-
 #[test]
 fn can_put_macros_before_mods_via_config() {
     let items = vec![
@@ -104,11 +126,11 @@ fn can_put_macros_before_mods_via_config() {
         &config,
         None,
     );
-    let mod_pos = rendered.find("mod attacks;").expect("mod item present");
-    let macro_pos = rendered.find("macro_rules! m").expect("macro item present");
-    assert!(macro_pos < mod_pos);
+    assert_eq!(
+        rendered.trim(),
+        "mod attacks;\n\nmacro_rules! m { () => {}; }".trim()
+    );
 }
-
 #[test]
 fn puts_constants_before_type_aliases_by_default() {
     let items = vec![
@@ -125,9 +147,11 @@ fn puts_constants_before_type_aliases_by_default() {
         &NormalizeConfig::default(),
         None,
     );
-    assert!(rendered.starts_with("const DEFAULT: Score = 0;\n\ntype Score = i32;"));
+    assert_eq!(
+        rendered,
+        "const DEFAULT: Score = 0;\ntype Score = i32;\n"
+    );
 }
-
 #[test]
 fn puts_ffi_before_free_functions_by_default() {
     let items = vec![
@@ -144,11 +168,11 @@ fn puts_ffi_before_free_functions_by_default() {
         &NormalizeConfig::default(),
         None,
     );
-    assert!(rendered.starts_with(
-        "extern \"C\" {\n    fn eval_native() -> i32;\n}\n\nfn eval() -> Score { Score(0) }"
-    ));
+    assert_eq!(
+        rendered,
+        "extern \"C\" {\n    fn eval_native() -> i32;\n}\nfn eval() -> Score { Score(0) }\n"
+    );
 }
-
 #[test]
 fn honors_struct_impl_enum_priority_from_config() {
     let items = vec![
@@ -191,7 +215,6 @@ fn honors_struct_impl_enum_priority_from_config() {
     let enum_pos = rendered.find("enum Flavor").expect("enum present");
     assert!(struct_pos < impl_pos && impl_pos < enum_pos);
 }
-
 #[test]
 fn compacts_consecutive_mod_items_by_default() {
     let normalized = NormalizedFile {
@@ -221,7 +244,6 @@ fn compacts_consecutive_mod_items_by_default() {
     let rendered = render_segments(normalized, &NormalizeConfig::default(), None);
     assert_eq!(rendered, "mod attacks;\nmod magics;\nmod maps;\n");
 }
-
 #[test]
 fn can_disable_compact_mod_block_via_config() {
     let normalized = NormalizedFile {
@@ -247,9 +269,8 @@ fn can_disable_compact_mod_block_via_config() {
         ..NormalizeConfig::default()
     };
     let rendered = render_segments(normalized, &config, None);
-    assert_eq!(rendered, "mod attacks;\n\nmod magics;\n");
+    assert_eq!(rendered, "mod attacks;\nmod magics;\n");
 }
-
 #[test]
 fn treats_multiline_fold_and_trailing_comma_as_whitespace_only() {
     let before = r#"
@@ -269,14 +290,12 @@ pub fn sliding_attacks(square: u8, occupancies: u64, directions: &[i8]) -> u64 {
 "#;
     assert!(differs_only_by_whitespace(before, after));
 }
-
 #[test]
 fn detects_real_non_whitespace_change() {
     let before = "fn f() { let x = 1 + 2; }";
     let after = "fn f() { let x = 1 - 2; }";
     assert!(!differs_only_by_whitespace(before, after));
 }
-
 #[test]
 fn preserves_plain_comment_before_impl_method() {
     let src = r#"
@@ -320,7 +339,6 @@ impl Position {
         "restored source should keep multi-line comment blocks"
     );
 }
-
 #[test]
 fn keeps_crate_attributes_on_separate_lines() {
     let src = "#![allow(dead_code)]\n#![allow(unused_mut)]\n#![allow(unused_imports)]\n";
@@ -335,7 +353,6 @@ fn keeps_crate_attributes_on_separate_lines() {
         rendered.contains("#![allow(dead_code)]\n#![allow(unused_mut)]\n#![allow(unused_imports)]")
     );
 }
-
 #[test]
 fn can_apply_only_mods_macros_feature() {
     let items = vec![
@@ -359,11 +376,10 @@ fn can_apply_only_mods_macros_feature() {
     );
 
     assert_eq!(
-        rendered,
-        "fn helper() {}\n\nmod attacks;\n\nmacro_rules! m { () => {}; }\n"
+        rendered.trim(),
+        "mod attacks;\n\nfn helper() {}\nmacro_rules! m { () => {}; }".trim()
     );
 }
-
 #[test]
 fn empty_selection_keeps_item_order() {
     let items = vec![
@@ -388,6 +404,6 @@ fn empty_selection_keeps_item_order() {
 
     assert_eq!(
         rendered,
-        "macro_rules! m { () => {}; }\n\nmod attacks;\n\nfn helper() {}\n"
+        "mod attacks;\n\nmacro_rules! m { () => {}; }\nfn helper() {}\n"
     );
 }
