@@ -39,14 +39,36 @@ pub(super) fn render_segments(
         }
     }
 
-    // --- Emit all mod items, blank line, all use items, blank line, then the rest ---
+    // --- Emit all non-test mod items, blank line, all use items, blank line, then the rest, then #[cfg(test)] mod tests last ---
     let mut mods = Vec::new();
     let mut uses = Vec::new();
     let mut others = Vec::new();
+    let mut test_mod: Option<&super::model::ItemSegment> = None;
 
     for segment in &normalized.items {
         match &segment.item {
-            Item::Mod(_) => mods.push(segment),
+            Item::Mod(item_mod) => {
+                let is_test_mod = item_mod.ident == "tests"
+                    && item_mod.attrs.iter().any(|attr| {
+                        if attr.path().is_ident("cfg") {
+                            let mut found_test = false;
+                            let _ = attr.parse_nested_meta(|meta| {
+                                if meta.path.is_ident("test") {
+                                    found_test = true;
+                                }
+                                Ok(())
+                            });
+                            found_test
+                        } else {
+                            false
+                        }
+                    });
+                if is_test_mod {
+                    test_mod = Some(segment);
+                } else {
+                    mods.push(segment);
+                }
+            }
             Item::Use(_) => uses.push(segment),
             _ => others.push(segment),
         }
@@ -111,6 +133,26 @@ pub(super) fn render_segments(
             out.push_str(segment.source.trim_end());
             out.push('\n');
         }
+    }
+    // Always emit #[cfg(test)] mod tests last, with a blank line before if there is other content
+    if let Some(segment) = test_mod {
+        if !out.trim().is_empty() {
+            out.push('\n');
+        }
+        if !segment.module_doc_comments.is_empty() {
+            for line in &segment.module_doc_comments {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        if !segment.leading_comments.is_empty() {
+            for line in &segment.leading_comments {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        out.push_str(segment.source.trim_end());
+        out.push('\n');
     }
 
     out.truncate(out.trim_end_matches('\n').len());
