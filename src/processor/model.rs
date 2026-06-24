@@ -48,10 +48,3 @@ pub(crate) struct ItemSegment {
     pub(crate) module_doc_comments: Vec<String>,
     pub(crate) source: String,
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) enum CompactGroup {
-    Use,
-    Const,
-    Mod,
-}

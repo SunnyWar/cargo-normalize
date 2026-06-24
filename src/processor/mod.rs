@@ -10,4 +10,4 @@ mod text;
 mod tests;
 
 pub use engine::Processor;
-pub(crate) use model::{CompactGroup, ItemSegment, NormalizedFile, PROMOTED_COMMENT_MARKER};
+pub(crate) use model::{ItemSegment, NormalizedFile, PROMOTED_COMMENT_MARKER};

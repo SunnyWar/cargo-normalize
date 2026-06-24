@@ -1,7 +1,7 @@
 use crate::config::NormalizeConfig;
 use syn::Item;
 
-use super::{CompactGroup, NormalizedFile};
+use super::{NormalizedFile};
 
 use std::path::Path;
 
@@ -164,13 +164,4 @@ fn normalize_crate_attribute_layout(preamble: &str) -> String {
     preamble
         .replace("] #![", "]\n#![")
         .replace("]#![", "]\n#![")
-}
-
-fn compact_group_for_item(item: &Item, config: &NormalizeConfig) -> Option<CompactGroup> {
-    match item {
-        Item::Use(_) if config.compact_use_block => Some(CompactGroup::Use),
-        Item::Const(_) | Item::Static(_) if config.compact_const_block => Some(CompactGroup::Const),
-        Item::Mod(_) if config.compact_mod_block => Some(CompactGroup::Mod),
-        _ => None,
-    }
 }
