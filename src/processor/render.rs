@@ -29,6 +29,7 @@ pub(super) fn render_segments(
     if normalized.shebang.is_some() || !normalized.attrs.is_empty() {
         let preamble = prettyplease::unparse(&syn::File {
             shebang: normalized.shebang,
+            frontmatter: None,
             attrs: normalized.attrs,
             items: Vec::new(),
         });
